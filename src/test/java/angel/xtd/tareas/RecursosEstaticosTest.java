@@ -132,4 +132,14 @@ class RecursosEstaticosTest {
 		}
 	}
 
+	@Test
+	@DisplayName("la clave de localStorage del tema coincide en el HTML y en preferencias.js")
+	void claveTemaConsistente() throws IOException {
+		String html = leerIndex();
+		String preferencias = leerRecurso("static/js/preferencias.js");
+
+		assertThat(html).contains("localStorage.getItem('tareas.tema')");
+		assertThat(preferencias).contains("tareas.tema");
+	}
+
 }

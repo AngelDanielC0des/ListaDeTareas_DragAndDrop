@@ -43,8 +43,7 @@ export function reemplazarFondos(nuevos) {
 }
 
 export function obtenerTareas() {
-	const resultado = tareas;
-	return resultado;
+	return [...tareas];
 }
 
 export function reemplazarTareas(nuevas) {

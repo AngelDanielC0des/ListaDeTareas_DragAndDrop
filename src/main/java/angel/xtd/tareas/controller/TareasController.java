@@ -110,12 +110,6 @@ public class TareasController {
 	}
 
 	/**
-	 * Endpoint del drag &amp; drop: una sola petición atómica con todos los ids en el nuevo orden.
-	 *
-	 * <p>El segmento literal {@code /orden} tiene prioridad sobre la plantilla {@code /{id}} en el
-	 * emparejamiento de rutas de Spring, así que no hay ambigüedad con {@code PUT /tarea/{id}}.
-	 */
-	/**
 	 * Devuelve qué fondo tiene cada tarea, en una sola petición.
 	 *
 	 * <p>Va aparte de {@code GET /tarea} para no tocar la forma de la tarea, que sigue teniendo
@@ -136,6 +130,12 @@ public class TareasController {
 		return resultado;
 	}
 
+	/**
+	 * Endpoint del drag &amp; drop: una sola petición atómica con todos los ids en el nuevo orden.
+	 *
+	 * <p>El segmento literal {@code /orden} tiene prioridad sobre la plantilla {@code /{id}} en el
+	 * emparejamiento de rutas de Spring, así que no hay ambigüedad con {@code PUT /tarea/{id}}.
+	 */
 	@PutMapping("/orden")
 	public List<Tarea> reordenar(@Valid @RequestBody ReordenarPeticion peticion) {
 		List<Tarea> resultado = this.servicio.reordenar(peticion.ids());

@@ -29,7 +29,10 @@ import angel.xtd.tareas.service.TareasService;
  * <p>La ruta del almacén se manda a un directorio temporal del sistema: con la de por defecto, cada
  * ejecución de las pruebas crearía un {@code datos/tareas.json} dentro del proyecto.
  */
-@SpringBootTest(properties = "app.almacen.ruta=${java.io.tmpdir}/tareas-test-contexto/tareas.json")
+@SpringBootTest(properties = {
+	"app.almacen.ruta=${java.io.tmpdir}/tareas-test-contexto/tareas.json",
+	"app.almacen.ruta-de-fondos=${java.io.tmpdir}/tareas-test-contexto/fondos.json"
+})
 class TareasApplicationTest {
 
 	@Autowired

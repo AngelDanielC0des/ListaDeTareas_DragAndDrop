@@ -20,7 +20,7 @@
 const CLAVE_TEMA = 'tareas.tema';
 
 /** El valor por defecto: seguir lo que diga el sistema operativo. */
-export const TEMA_SISTEMA = 'sistema';
+const TEMA_SISTEMA = 'sistema';
 
 const TEMAS_VALIDOS = ['claro', 'oscuro', TEMA_SISTEMA];
 

@@ -110,6 +110,14 @@ public class ManejadorErroresGlobal extends ResponseEntityExceptionHandler {
 		return resultado;
 	}
 
+	@ExceptionHandler(IllegalArgumentException.class)
+	public ProblemDetail manejarArgumentoInvalido(IllegalArgumentException excepcion) {
+		ProblemDetail resultado = construirProblema(HttpStatus.BAD_REQUEST, "Valor no válido",
+				excepcion.getMessage(), "valor-invalido");
+		log.warn("400 Valor no válido: {}", excepcion.getMessage());
+		return resultado;
+	}
+
 	/**
 	 * Red de seguridad para lo que nadie más haya atendido.
 	 *

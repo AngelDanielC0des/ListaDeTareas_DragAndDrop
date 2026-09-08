@@ -32,7 +32,7 @@ const elementos = {
 	botonDeshacer: document.getElementById('boton-deshacer'),
 	anuncios: document.getElementById('anuncios'),
 	selectorFondo: document.getElementById('selector-fondo'),
-	tituloDelSelector: document.getElementById('selector-fondo-tarea'),
+	nombreTareaEnSelector: document.getElementById('selector-fondo-tarea'),
 	opcionesDeFondo: document.getElementById('selector-fondo-opciones')
 };
 
@@ -171,7 +171,7 @@ function rellenarTarjeta(tarjeta, tarea, enEdicion) {
 
 	parrafo.hidden = enEdicion;
 	editor.hidden = !enEdicion;
-	tarjeta.querySelector('[data-accion="editar"]').textContent = enEdicion ? 'Listo' : 'Editar';
+	tarjeta.querySelector('[data-accion="editar"] .tarea__accion-texto').textContent = enEdicion ? 'Listo' : 'Editar';
 }
 
 /* --------------------------------------------------------- Recorte del texto */
@@ -308,7 +308,7 @@ export function actualizarContador() {
 /* ---------------------------------------------------------------- Fondos */
 
 /** Los cinco fondos, con el nombre que se enseña. El «ninguno» es el valor por defecto. */
-export const FONDOS = [
+const FONDOS = [
 	{ valor: 'ninguno', nombre: 'Sin fondo' },
 	{ valor: 'ondas', nombre: 'Ondas' },
 	{ valor: 'puntos', nombre: 'Puntos' },
@@ -332,7 +332,7 @@ function aplicarFondo(tarjeta, fondo) {
  * abrió sin que haya que guardarlo a mano.
  */
 export function abrirSelectorDeFondo(tarea, fondoActual, alElegir) {
-	elementos.tituloDelSelector.textContent = tarea.texto;
+	elementos.nombreTareaEnSelector.textContent = tarea.texto;
 
 	const fragmento = document.createDocumentFragment();
 	for (const opcion of FONDOS) {

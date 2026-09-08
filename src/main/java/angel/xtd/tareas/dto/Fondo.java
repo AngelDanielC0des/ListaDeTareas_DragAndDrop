@@ -2,6 +2,8 @@ package angel.xtd.tareas.dto;
 
 // Ojo con el paquete: Jackson 3 movió databind y core a tools.jackson, pero las anotaciones se
 // quedaron en com.fasterxml.jackson.annotation por compatibilidad. Mezclarlos no compila.
+import java.util.Locale;
+
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonValue;
 
@@ -25,7 +27,7 @@ public enum Fondo {
 
 	@JsonValue
 	public String valorJson() {
-		String resultado = name().toLowerCase();
+		String resultado = name().toLowerCase(Locale.ROOT);
 		return resultado;
 	}
 
@@ -38,7 +40,7 @@ public enum Fondo {
 	 */
 	@JsonCreator
 	public static Fondo desdeJson(String valor) {
-		Fondo resultado = valueOf(valor.toUpperCase());
+		Fondo resultado = valueOf(valor.toUpperCase(Locale.ROOT));
 		return resultado;
 	}
 

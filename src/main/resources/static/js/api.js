@@ -131,12 +131,25 @@ export function eliminarTarea(id) {
  * no habrá nadie mirando. Por eso no lanza: como mucho, el borrado no llega y la tarea sigue ahí.
  */
 export function eliminarTareaAlSalir(id) {
-	try {
-		fetch(`${RUTA_BASE}/${id}`, { method: 'DELETE', keepalive: true });
-	}
-	catch {
-		// La página se está cerrando: no hay nada que se pueda hacer ni a quién avisar.
-	}
+	fetch(`${RUTA_BASE}/${id}`, { method: 'DELETE', keepalive: true }).catch(() => {});
+}
+
+export function guardarTareaAlSalir(id, texto, completada) {
+	fetch(`${RUTA_BASE}/${id}`, {
+		method: 'PUT',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ texto, completada }),
+		keepalive: true
+	}).catch(() => {});
+}
+
+export function reordenarAlSalir(ids) {
+	fetch(`${RUTA_BASE}/orden`, {
+		method: 'PUT',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ ids }),
+		keepalive: true
+	}).catch(() => {});
 }
 
 export function reordenarTareas(ids) {

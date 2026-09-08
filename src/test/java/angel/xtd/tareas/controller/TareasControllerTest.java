@@ -8,6 +8,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.BDDMockito.willThrow;
+import static org.mockito.Mockito.never;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -147,7 +148,7 @@ class TareasControllerTest {
 			.andExpect(status().isOk());
 
 		then(this.servicio).should().reordenar(List.of(1));
-		then(this.servicio).should(org.mockito.Mockito.never()).actualizar(anyInt(), anyString(), anyBoolean());
+		then(this.servicio).should(never()).actualizar(anyInt(), anyString(), anyBoolean());
 	}
 
 	@Test
@@ -192,7 +193,9 @@ class TareasControllerTest {
 	/**
 	 * Regresión: el manejador de errores llegó a tener un {@code @ExceptionHandler(Exception.class)}
 	 * con prioridad máxima, lo que dejaba sin ejecutar al de Spring Boot y convertía este 405 en un
-	 * 500. Por eso la red de seguridad vive en un advice aparte con la prioridad mínima.
+	 * 500. La solución fue que {@code ManejadorErroresGlobal} extienda
+	 * {@code ResponseEntityExceptionHandler}: dentro de la misma clase, Spring elige el manejador más
+	 * específico sin importar el orden.
 	 */
 	@Test
 	@DisplayName("un método no soportado responde 405, no 500")
@@ -240,7 +243,7 @@ class TareasControllerTest {
 				.content("{\"fondo\":\"purpurina\"}"))
 			.andExpect(status().isBadRequest());
 
-		then(this.servicio).should(org.mockito.Mockito.never()).cambiarFondo(anyInt(), any());
+		then(this.servicio).should(never()).cambiarFondo(anyInt(), any());
 	}
 
 	@Test
@@ -260,7 +263,19 @@ class TareasControllerTest {
 
 		this.mockMvc.perform(get("/tarea/fondo")).andExpect(status().isOk());
 
-		then(this.servicio).should(org.mockito.Mockito.never()).consultarPorId(anyInt());
+		then(this.servicio).should(never()).consultarPorId(anyInt());
+	}
+
+	@Test
+	@DisplayName("un error inesperado responde 500 con formato ProblemDetail")
+	void traduceExcepcionInesperadaA500() throws Exception {
+		willThrow(new RuntimeException("fallo interno")).given(this.servicio).consultarTodas();
+
+		this.mockMvc.perform(get("/tarea"))
+			.andExpect(status().isInternalServerError())
+			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+			.andExpect(jsonPath("$.title").value("Error inesperado"))
+			.andExpect(jsonPath("$.detail").value("Ha ocurrido un error inesperado en el servidor."));
 	}
 
 }

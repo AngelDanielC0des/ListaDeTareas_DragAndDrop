@@ -152,6 +152,7 @@ public class TareasService {
 			tareas.addAll(reordenadas);
 			return List.copyOf(tareas);
 		});
+		this.fondos.conservarSolo(idsEnOrden);
 		log.info("reordenar() -> nuevo orden de ids {}", idsEnOrden);
 		return resultado;
 	}

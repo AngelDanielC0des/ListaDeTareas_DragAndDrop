@@ -304,14 +304,13 @@ function eliminarTarea(id) {
 
 	// Al desaparecer la tarjeta, el foco se caería al body y quien navega con teclado perdería el
 	// sitio. Se lleva al botón de deshacer, que además es lo siguiente que puede querer pulsar.
-	vista.enfocarDeshacer();
-
 	borradoPendiente = {
 		tarea,
 		posicion,
 		temporizador: setTimeout(confirmarBorradoPendiente, ESPERA_PARA_DESHACER)
 	};
 	vista.mostrarDeshacer(tarea.texto, deshacerBorrado);
+	vista.enfocarDeshacer();
 }
 
 function deshacerBorrado() {
@@ -359,6 +358,33 @@ async function confirmarBorradoPendiente() {
  * cancelaría y la tarea reaparecería al volver.
  */
 function confirmarBorradoAlSalir() {
+	// Forzar guardado de texto pendiente con keepalive
+	if (temporizadorDeTexto !== null) {
+		clearTimeout(temporizadorDeTexto);
+		temporizadorDeTexto = null;
+		const editorActivo = document.querySelector('.tarea__editor:focus');
+		if (editorActivo) {
+			const id = Number(editorActivo.closest('.tarea').dataset.id);
+			const tarea = estado.buscarTareaPorId(id);
+			if (tarea) {
+				const textoEnviado = tarea.texto.trim();
+				if (textoEnviado.length > 0 && textoEnviado !== estado.obtenerTextoGuardadoDeEdicion()) {
+					api.guardarTareaAlSalir(id, textoEnviado, tarea.completada);
+				}
+			}
+		}
+	}
+
+	// Forzar guardado de orden pendiente con keepalive
+	if (temporizadorDeOrden !== null) {
+		clearTimeout(temporizadorDeOrden);
+		temporizadorDeOrden = null;
+		if (respaldoAntesDeReordenar !== null) {
+			respaldoAntesDeReordenar = null;
+			api.reordenarAlSalir(estado.obtenerIdsEnOrden());
+		}
+	}
+
 	if (borradoPendiente === null) {
 		return;
 	}
@@ -471,7 +497,9 @@ function terminarEdicion(id, { cancelar }) {
 
 	if (cancelar || quedaVacio) {
 		// El servidor rechazaría un texto vacío, así que se restaura antes de intentarlo siquiera.
-		estado.reemplazarTarea({ ...tarea, texto: textoOriginal });
+		if (tarea) {
+			estado.reemplazarTarea({ ...tarea, texto: textoOriginal });
+		}
 		if (quedaVacio && !cancelar) {
 			vista.mostrarError('El texto de la tarea no puede quedar vacío: se ha restaurado el anterior.');
 		}

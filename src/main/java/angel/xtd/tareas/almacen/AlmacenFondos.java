@@ -7,7 +7,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.TreeMap;
 
 import org.slf4j.Logger;
@@ -69,6 +72,7 @@ public class AlmacenFondos {
 			}
 			String json = Files.readString(this.archivo, StandardCharsets.UTF_8);
 			if (!json.isBlank()) {
+				this.fondosPorTarea.clear();
 				this.fondosPorTarea.putAll(this.mapeadorJson.readValue(json, TIPO_MAPA_DE_FONDOS));
 			}
 			log.info("Cargados {} fondos desde {}", this.fondosPorTarea.size(), this.archivo);
@@ -80,8 +84,8 @@ public class AlmacenFondos {
 
 	/** Copia inmutable, para que nadie modifique el mapa interno por la puerta de atrás. */
 	public synchronized Map<Integer, Fondo> consultarTodos() {
-		Map<Integer, Fondo> resultado = Map.copyOf(this.fondosPorTarea);
-		return resultado;
+		Map<Integer, Fondo> resultado = new TreeMap<>(this.fondosPorTarea);
+		return java.util.Collections.unmodifiableMap(resultado);
 	}
 
 	/**
@@ -93,6 +97,11 @@ public class AlmacenFondos {
 	public synchronized void asignar(int idDeTarea, Fondo fondo) {
 		Fondo anterior = (fondo == Fondo.NINGUNO) ? this.fondosPorTarea.remove(idDeTarea)
 				: this.fondosPorTarea.put(idDeTarea, fondo);
+
+		if (Objects.equals(anterior, fondo) || (fondo == Fondo.NINGUNO && anterior == null)) {
+			log.debug("asignar({}, {}) -> sin cambios", idDeTarea, fondo);
+			return;
+		}
 
 		guardarDeshaciendoSiFalla(() -> restaurar(idDeTarea, anterior));
 		log.debug("asignar({}, {})", idDeTarea, fondo);
@@ -110,7 +119,8 @@ public class AlmacenFondos {
 
 	/** Descarta los fondos de tareas que ya no existen. Se usa al arrancar y tras reordenar. */
 	public synchronized void conservarSolo(Collection<Integer> idsQueExisten) {
-		boolean cambio = this.fondosPorTarea.keySet().retainAll(idsQueExisten);
+		Set<Integer> conjunto = new HashSet<>(idsQueExisten);
+		boolean cambio = this.fondosPorTarea.keySet().retainAll(conjunto);
 		if (cambio) {
 			guardarEnArchivo();
 			log.info("Limpiados los fondos de tareas que ya no existen");
@@ -147,6 +157,9 @@ public class AlmacenFondos {
 		}
 		catch (IOException | JacksonException excepcion) {
 			throw new AlmacenamientoException("No se pudo guardar el archivo de fondos: " + this.archivo, excepcion);
+		}
+		finally {
+			try { Files.deleteIfExists(temporal); } catch (IOException ignored) {}
 		}
 	}
 

@@ -7,8 +7,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.IntSupplier;
 
@@ -112,6 +114,7 @@ public class AlmacenTareas {
 
 			this.tareas.clear();
 			this.tareas.addAll(leidas);
+			validarIdsUnicos(leidas);
 			this.siguienteId = calcularSiguienteId(leidas);
 
 			log.info("Cargadas {} tareas desde {} (siguiente id = {})", this.tareas.size(), this.archivo,
@@ -215,6 +218,9 @@ public class AlmacenTareas {
 		catch (IOException | JacksonException excepcion) {
 			throw new AlmacenamientoException("No se pudo guardar el archivo de tareas: " + this.archivo, excepcion);
 		}
+		finally {
+			try { Files.deleteIfExists(temporal); } catch (IOException ignored) {}
+		}
 	}
 
 	private void moverSobrescribiendo(Path temporal, Path destino) throws IOException {
@@ -231,6 +237,16 @@ public class AlmacenTareas {
 		int mayorId = leidas.stream().mapToInt(Tarea::id).max().orElse(Tarea.PRIMER_ID - 1);
 		int resultado = Math.max(mayorId + 1, Tarea.PRIMER_ID);
 		return resultado;
+	}
+
+	private void validarIdsUnicos(List<Tarea> tareas) {
+		Set<Integer> vistos = new HashSet<>();
+		for (Tarea tarea : tareas) {
+			if (!vistos.add(tarea.id())) {
+				throw new IllegalStateException(
+					"El archivo contiene ids repetidos: " + tarea.id());
+			}
+		}
 	}
 
 }
