@@ -1,115 +1,67 @@
 package angel.xtd.tareas.service;
 
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import angel.xtd.tareas.almacen.AlmacenTareas;
 import angel.xtd.tareas.dto.Tarea;
+import angel.xtd.tareas.error.TareaNoEncontradaException;
 
 /**
- * Lógica de negocio de la lista de tareas, que además guarda la lista en memoria.
+ * Lógica de negocio de la lista de tareas.
  *
- * <p><b>No hay persistencia:</b> las tareas viven en un campo de esta clase. Al arrancar la
- * aplicación la lista está vacía y se va llenando según se usa; al parar el servidor se pierde todo.
- * Es intencionado en esta versión, y es la única diferencia de fondo con la rama
- * {@code listatareasv1}, que guarda lo mismo en un archivo JSON.
- *
- * <p>El orden de las tareas es la posición dentro de la lista y el {@code id} es identidad pura, así
- * que la tarea solo necesita los tres campos que se envían por JSON.
- *
- * <h2>Por qué devuelve Optional y boolean</h2>
- * En lugar de lanzar una excepción cuando la tarea no existe, se informa con el valor de retorno.
- * Así el controlador puede responder un 404 él mismo y esta versión no necesita ni excepciones
- * propias ni un manejador global de errores.
- *
- * <h2>Concurrencia</h2>
- * Los métodos son {@code synchronized} porque el servidor atiende varias peticiones a la vez y todas
- * comparten esta misma lista. Sin ello, dos altas simultáneas podrían recibir el mismo id.
+ * <p>No sabe nada de HTTP ni de archivos: recibe y devuelve objetos de dominio, y lanza excepciones
+ * de dominio. Traducir eso a códigos de estado es trabajo del manejador global de errores; leer y
+ * escribir el JSON, del almacén.
  */
 @Service
 public class TareasService {
 
 	private static final Logger log = LoggerFactory.getLogger(TareasService.class);
 
-	/** Empieza vacía en cada arranque: no hay nada que cargar. El índice ES el orden de la tarea. */
-	private final List<Tarea> tareas = new ArrayList<>();
+	private final AlmacenTareas almacen;
 
-	/** Contador monótono. Nunca decrece, así que un id no se reutiliza mientras la app siga viva. */
-	private int siguienteId = Tarea.PRIMER_ID;
+	public TareasService(AlmacenTareas almacen) {
+		this.almacen = almacen;
+	}
 
-	public synchronized List<Tarea> consultarTodas() {
-		// Copia inmutable, para que nadie pueda modificar la lista interna por la puerta de atrás.
-		List<Tarea> resultado = List.copyOf(this.tareas);
+	public List<Tarea> consultarTodas() {
+		List<Tarea> resultado = this.almacen.consultarTodas();
 		log.debug("consultarTodas() -> {} tareas", resultado.size());
 		return resultado;
 	}
 
-	public synchronized Optional<Tarea> buscarPorId(int id) {
-		Optional<Tarea> resultado = this.tareas.stream().filter(tarea -> tarea.id() == id).findFirst();
-		log.debug("buscarPorId({}) -> {}", id, resultado.isPresent() ? "encontrada" : "no existe");
+	public Tarea consultarPorId(int id) {
+		Tarea resultado = this.almacen.buscarPorId(id).orElseThrow(() -> new TareaNoEncontradaException(id));
+		log.debug("consultarPorId({}) -> encontrada", id);
 		return resultado;
 	}
 
-	/**
-	 * Crea una tarea al final de la lista, que es donde el usuario espera verla aparecer.
-	 *
-	 * <p>El id sale de un contador propio y no del tamaño de la lista. Con {@code size()} habría
-	 * colisiones: con tres tareas (1, 2, 3), al borrar la 2 el tamaño baja a 2 y la siguiente tarea
-	 * recibiría el id 3, machacando una existente.
-	 */
-	public synchronized Tarea crear(String texto) {
-		Tarea resultado = new Tarea(this.siguienteId, normalizarTexto(texto), false);
-		this.tareas.add(resultado);
-		this.siguienteId++;
-
+	/** La tarea nueva se añade al final de la lista, que es donde el usuario espera verla aparecer. */
+	public Tarea crear(String texto) {
+		Tarea resultado = this.almacen.anadirAlFinal(normalizarTexto(texto));
 		log.info("crear() -> creada tarea id={}", resultado.id());
 		return resultado;
 	}
 
-	/**
-	 * Reemplaza texto y estado conservando el id y la posición en la lista.
-	 *
-	 * @return la tarea actualizada, o vacío si no existe ninguna con ese id
-	 */
-	public synchronized Optional<Tarea> actualizar(int id, String texto, boolean completada) {
-		int posicion = buscarPosicion(id);
-		if (posicion == -1) {
-			log.debug("actualizar({}) -> no existe", id);
-			return Optional.empty();
-		}
-
+	/** Reemplaza texto y estado conservando el id y, sobre todo, la posición en la lista. */
+	public Tarea actualizar(int id, String texto, boolean completada) {
 		Tarea actualizada = new Tarea(id, normalizarTexto(texto), completada);
-		this.tareas.set(posicion, actualizada);
-
+		if (!this.almacen.reemplazar(actualizada)) {
+			throw new TareaNoEncontradaException(id);
+		}
 		log.info("actualizar({}) -> actualizada", id);
-		return Optional.of(actualizada);
+		return actualizada;
 	}
 
-	/** @return {@code true} si se ha borrado, {@code false} si no existía ninguna tarea con ese id */
-	public synchronized boolean eliminar(int id) {
-		int posicion = buscarPosicion(id);
-		if (posicion == -1) {
-			log.debug("eliminar({}) -> no existe", id);
-			return false;
+	public void eliminar(int id) {
+		if (!this.almacen.eliminar(id)) {
+			throw new TareaNoEncontradaException(id);
 		}
-
-		this.tareas.remove(posicion);
 		log.info("eliminar({}) -> eliminada", id);
-		return true;
-	}
-
-	/** Búsqueda lineal: con listas de tareas es más rápida que cualquier índice, y no hay que mantenerla. */
-	private int buscarPosicion(int id) {
-		for (int posicion = 0; posicion < this.tareas.size(); posicion++) {
-			if (this.tareas.get(posicion).id() == id) {
-				return posicion;
-			}
-		}
-		return -1;
 	}
 
 	/** Quita espacios sobrantes de los extremos; {@code @NotBlank} ya ha descartado el texto vacío. */

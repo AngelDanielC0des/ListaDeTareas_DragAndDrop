@@ -1,18 +1,15 @@
-# Lista de tareas — versión en memoria
+# Lista de tareas — versión con persistencia
 
 Aplicación web de lista de tareas: API REST en Java 21 con Spring Boot 4 y frontend en HTML, CSS y
-JavaScript sin framework ni paso de build.
-
-**Las tareas viven solo en memoria.** Al arrancar la aplicación la lista está vacía y se va llenando
-según se usa; al parar el servidor se pierde todo. No se crea ningún archivo ni hace falta base de
+JavaScript sin framework ni paso de build. Los datos se guardan en un archivo JSON, sin base de
 datos.
 
 ## Las tres versiones
 
 | Rama | Qué añade | Dónde viven las tareas |
 |---|---|---|
-| **`listatareasv0`** ← estás aquí | CRUD completo sobre la API REST | memoria |
-| `listatareasv1` | persistencia entre arranques | archivo JSON |
+| `listatareasv0` | CRUD completo sobre la API REST | memoria |
+| **`listatareasv1`** ← estás aquí | persistencia entre arranques | archivo JSON |
 | `master` | drag & drop, guardado automático, errores centralizados | archivo JSON |
 
 ```bash
@@ -49,75 +46,83 @@ Para arrancar con el log detallado:
 .\mvnw.cmd spring-boot:run "-Dspring-boot.run.arguments=--spring.profiles.active=dev"
 ```
 
-## API
+## Dónde se guardan los datos
 
-Todo se recibe y se devuelve en JSON.
+En `datos/tareas.json`, relativo al directorio desde el que se arranca la app. Se crea solo la
+primera vez que se añade una tarea. La ruta se cambia en `application.properties`:
+
+```properties
+app.almacen.ruta=datos/tareas.json
+```
+
+El archivo contiene un array con los tres campos de cada tarea, y **el orden del array es el orden
+de la lista**:
+
+```json
+[
+  { "id" : 1, "texto" : "Repasar HTML", "completada" : false },
+  { "id" : 2, "texto" : "Repasar CSS", "completada" : true }
+]
+```
+
+La escritura es atómica: se guarda en un archivo temporal y luego se mueve sobre el definitivo, así
+que si el proceso muere a mitad el archivo bueno queda intacto en lugar de truncado. Hay un
+test que lo comprueba: provoca un fallo de escritura y verifica que el archivo anterior se sigue
+pudiendo cargar entero.
+
+## API
 
 | Método | Ruta | Cuerpo | Respuesta |
 |---|---|---|---|
 | `GET` | `/tarea` | — | `200` con las tareas en orden |
-| `GET` | `/tarea/{id}` | — | `200` con la tarea · `404` si no existe |
+| `GET` | `/tarea/{id}` | — | `200` · `404` si no existe |
 | `POST` | `/tarea` | `{"texto":"…"}` | `201` + `Location`, se añade al final |
 | `PUT` | `/tarea/{id}` | `{"texto":"…","completada":false}` | `200` · `404` si no existe |
 | `DELETE` | `/tarea/{id}` | — | `204` · `404` si no existe |
 
-Una tarea tiene exactamente tres campos:
-
-```json
-{ "id": 1, "texto": "Repasar HTML", "completada": false }
-```
-
-Los errores se devuelven en formato `ProblemDetail` (RFC 9457):
+Los errores se devuelven siempre en formato `ProblemDetail` (RFC 9457):
 
 ```json
 {
+  "type": "urn:tareas:error:validacion",
   "title": "Datos inválidos",
   "status": 400,
-  "detail": "Revisa los datos enviados: hay algún campo que no es válido."
+  "detail": "Revisa los campos indicados en la propiedad «errores».",
+  "errores": { "texto": "El texto de la tarea no puede estar vacío" }
 }
-```
-
-Los genera Spring, no código propio: esta versión no tiene manejador de errores. Sus textos se
-traducen al español en `messages.properties`.
-
-Ejemplo con `curl`:
-
-```bash
-curl -X POST localhost:8080/tarea -H "Content-Type: application/json" -d "{\"texto\":\"Repasar HTML\"}"
-curl localhost:8080/tarea
-curl -X PUT localhost:8080/tarea/1 -H "Content-Type: application/json" -d "{\"texto\":\"Repasar HTML\",\"completada\":true}"
-curl -X DELETE localhost:8080/tarea/1
 ```
 
 ## Estructura
 
-Seis clases, dos capas:
-
 ```
 src/main/java/angel/xtd/tareas/
-├── TareasApplication.java             arranque
-├── controller/TareasController.java   los 5 endpoints; traduce el «no existe» a 404
-├── service/TareasService.java         la lista en memoria + la lógica
-└── dto/
-    ├── Tarea.java                     el record de 3 campos
-    ├── CrearTareaPeticion.java        cuerpo del POST, con @Valid
-    └── ActualizarTareaPeticion.java   cuerpo del PUT, con @Valid
+├── controller/TareasController.java   API REST: solo el camino feliz
+├── service/TareasService.java         lógica de negocio
+├── almacen/AlmacenTareas.java         estado en memoria + escritura atómica del JSON
+├── dto/                               Tarea (3 campos) y los cuerpos de petición
+├── error/                             excepciones de dominio + @RestControllerAdvice
+└── config/PropiedadesAlmacen.java     ruta del archivo
 
 src/main/resources/
-├── application.properties             configuración
+├── application.properties             configuración y ruta del archivo de datos
 ├── messages.properties                traduce al español los errores del framework
 └── static/
     ├── index.html                     HTML semántico + <template> de la tarjeta
     ├── css/estilos.css                especificidad plana, BEM, rejilla con auto-fill
     └── js/
-        ├── api.js                     única puerta hacia la API
+        ├── api.js                     única puerta hacia la API; interpreta los errores
         └── app.js                     estado, pintado y manejadores
 
 src/test/java/angel/xtd/tareas/
+├── almacen/AlmacenTareasTest.java         la E/S: rollback y archivo intacto si falla
 ├── controller/TareasControllerTest.java   el contrato HTTP, con el servicio simulado
-├── service/TareasServiceTest.java         la lógica, sin simular nada
+├── service/TareasServiceTest.java         la lógica, contra un archivo temporal
 └── RecursosEstaticosTest.java             que el HTML y el servidor no se contradigan
 ```
+
+`AlmacenTareas` **no es un repository**: no hay ORM ni base de datos. Es el guardián del estado en
+memoria y de la escritura del archivo, separado del servicio para que el `Files.move` y el
+`ObjectMapper` no entierren la lógica de negocio.
 
 ## Integración continua
 
@@ -126,21 +131,19 @@ Java 21 (`.github/workflows/build.yml`).
 
 ## Cómo funciona
 
-- **El `id` es identidad y no cambia nunca.** El orden es la posición dentro de la lista, así que la
-  tarea solo necesita los tres campos que se envían por JSON, sin ningún campo de orden.
+- **El `id` es identidad y no cambia nunca.** El orden es la posición dentro del array del JSON, así
+  que la tarea solo necesita los tres campos que se guardan, sin ningún campo de orden.
 - **El id sale de un contador propio, no del tamaño de la lista.** Con `size()` habría colisiones:
   crea tres tareas (1, 2, 3), borra la 2 y la siguiente recibiría el id 3, machacando una existente.
-  Hay un test de regresión.
-- **El servicio devuelve `Optional` y `boolean`** en lugar de lanzar excepciones cuando la tarea no
-  existe. Así el controlador responde el 404 él mismo y esta versión no necesita ni excepciones
-  propias ni un manejador global de errores.
-- **Los métodos del servicio son `synchronized`** porque el servidor atiende varias peticiones a la
-  vez y todas comparten la misma lista. Sin ello, dos altas simultáneas podrían recibir el mismo id.
 - **El estado del navegador vive en una variable, no en el DOM.** Tras cada cambio se repinta la
-  lista entera desde ese estado, lo que evita toda una clase de errores por tener la verdad en dos
-  sitios.
-- **El texto del usuario se pinta con `textContent`**, nunca concatenando HTML, así que no puede
-  inyectar marcado.
+  lista entera desde ese estado; con decenas de tareas es instantáneo y evita toda una clase de
+  errores por tener la verdad en dos sitios.
+- **Los errores se traducen en un solo sitio.** El controlador no tiene ni un `try/catch`: el
+  servicio lanza excepciones con significado y `ManejadorErroresGlobal` las convierte en códigos
+  HTTP. Añadir un endpoint no requiere escribir manejo de errores.
+- **Ese manejador no atrapa `Exception`, y es a propósito.** Spring se queda con el primer advice
+  que tenga cualquier método aplicable, y `Exception` casa con todo: un catch-all aquí dejaría sin
+  ejecutar al manejador de Spring Boot y convertiría los 405 y 415 en 500. Hay tests que lo cubren.
 
 ## Uso
 
@@ -148,6 +151,3 @@ Java 21 (`.github/workflows/build.yml`).
 - **Completar**: marcar la casilla de la tarjeta.
 - **Editar**: botón «Editar», cambiar el texto y «Guardar» (o «Cancelar»).
 - **Borrar**: botón «Borrar», que pide confirmación.
-
-Al recargar la página las tareas siguen ahí, porque las guarda el servidor. Al **reiniciar el
-servidor**, no: para eso está la rama `listatareasv1`.

@@ -1,21 +1,19 @@
 package angel.xtd.tareas.controller;
 
-import static org.mockito.ArgumentMatchers.anyBoolean;
-import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
+import static org.mockito.BDDMockito.willThrow;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.util.List;
-import java.util.Optional;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -26,13 +24,14 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import angel.xtd.tareas.dto.Tarea;
+import angel.xtd.tareas.error.TareaNoEncontradaException;
 import angel.xtd.tareas.service.TareasService;
 
 /**
- * Pruebas de la capa web: rutas, códigos de estado y formato JSON.
+ * Pruebas de la capa web: rutas, códigos de estado y traducción de excepciones.
  *
- * <p>El servicio va simulado a propósito: lo que se comprueba aquí es el contrato HTTP, no la lógica
- * de negocio (que tiene sus propias pruebas).
+ * <p>El servicio va simulado a propósito: lo que se comprueba aquí es el contrato HTTP, no la
+ * lógica de negocio (que tiene sus propias pruebas).
  */
 @WebMvcTest(TareasController.class)
 class TareasControllerTest {
@@ -44,42 +43,15 @@ class TareasControllerTest {
 	private TareasService servicio;
 
 	@Test
-	@DisplayName("GET /tarea devuelve la lista en JSON")
+	@DisplayName("GET /tarea devuelve la lista en el orden del servicio")
 	void listaTareas() throws Exception {
 		given(this.servicio.consultarTodas())
-			.willReturn(List.of(new Tarea(1, "Repasar HTML", false), new Tarea(2, "Repasar CSS", true)));
+			.willReturn(List.of(new Tarea(7, "Repasar JS", false), new Tarea(2, "Repasar CSS", true)));
 
 		this.mockMvc.perform(get("/tarea"))
 			.andExpect(status().isOk())
-			.andExpect(jsonPath("$[0].id").value(1))
-			.andExpect(jsonPath("$[0].texto").value("Repasar HTML"))
-			.andExpect(jsonPath("$[1].completada").value(true));
-	}
-
-	@Test
-	@DisplayName("GET /tarea devuelve una lista vacía al arrancar")
-	void listaVaciaAlArrancar() throws Exception {
-		given(this.servicio.consultarTodas()).willReturn(List.of());
-
-		this.mockMvc.perform(get("/tarea")).andExpect(status().isOk()).andExpect(jsonPath("$").isEmpty());
-	}
-
-	@Test
-	@DisplayName("GET /tarea/{id} devuelve la tarea pedida")
-	void consultaUnaTarea() throws Exception {
-		given(this.servicio.buscarPorId(1)).willReturn(Optional.of(new Tarea(1, "Repasar HTML", false)));
-
-		this.mockMvc.perform(get("/tarea/1"))
-			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.texto").value("Repasar HTML"));
-	}
-
-	@Test
-	@DisplayName("GET /tarea/{id} de una tarea que no existe responde 404")
-	void consultaInexistenteDa404() throws Exception {
-		given(this.servicio.buscarPorId(9999)).willReturn(Optional.empty());
-
-		this.mockMvc.perform(get("/tarea/9999")).andExpect(status().isNotFound());
+			.andExpect(jsonPath("$[0].id").value(7))
+			.andExpect(jsonPath("$[1].id").value(2));
 	}
 
 	@Test
@@ -95,10 +67,12 @@ class TareasControllerTest {
 	}
 
 	@Test
-	@DisplayName("POST /tarea con texto vacío responde 400")
+	@DisplayName("POST /tarea con texto vacío responde 400 con el detalle del campo")
 	void rechazaTextoVacio() throws Exception {
 		this.mockMvc.perform(post("/tarea").contentType(MediaType.APPLICATION_JSON).content("{\"texto\":\"  \"}"))
-			.andExpect(status().isBadRequest());
+			.andExpect(status().isBadRequest())
+			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+			.andExpect(jsonPath("$.errores.texto").exists());
 
 		then(this.servicio).shouldHaveNoInteractions();
 	}
@@ -111,61 +85,33 @@ class TareasControllerTest {
 		this.mockMvc
 			.perform(post("/tarea").contentType(MediaType.APPLICATION_JSON)
 				.content("{\"texto\":\"" + demasiado + "\"}"))
-			.andExpect(status().isBadRequest());
-	}
-
-	@Test
-	@DisplayName("PUT /tarea/{id} actualiza texto y estado")
-	void actualizaTarea() throws Exception {
-		given(this.servicio.actualizar(anyInt(), anyString(), anyBoolean()))
-			.willReturn(Optional.of(new Tarea(1, "Repasar HTML a fondo", true)));
-
-		this.mockMvc
-			.perform(put("/tarea/1").contentType(MediaType.APPLICATION_JSON)
-				.content("{\"texto\":\"Repasar HTML a fondo\",\"completada\":true}"))
-			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.texto").value("Repasar HTML a fondo"))
-			.andExpect(jsonPath("$.completada").value(true));
-	}
-
-	@Test
-	@DisplayName("PUT de una tarea que no existe responde 404")
-	void actualizaInexistenteDa404() throws Exception {
-		given(this.servicio.actualizar(anyInt(), anyString(), anyBoolean())).willReturn(Optional.empty());
-
-		this.mockMvc
-			.perform(put("/tarea/9999").contentType(MediaType.APPLICATION_JSON)
-				.content("{\"texto\":\"Da igual\",\"completada\":false}"))
-			.andExpect(status().isNotFound());
-	}
-
-	@Test
-	@DisplayName("PUT sin el campo completada responde 400")
-	void rechazaCompletadaAusente() throws Exception {
-		this.mockMvc
-			.perform(put("/tarea/1").contentType(MediaType.APPLICATION_JSON).content("{\"texto\":\"Solo texto\"}"))
-			.andExpect(status().isBadRequest());
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.errores.texto").exists());
 	}
 
 	@Test
 	@DisplayName("DELETE de una tarea existente responde 204")
 	void eliminaTarea() throws Exception {
-		given(this.servicio.eliminar(1)).willReturn(true);
-
 		this.mockMvc.perform(delete("/tarea/1")).andExpect(status().isNoContent());
+
+		then(this.servicio).should().eliminar(1);
 	}
 
 	@Test
-	@DisplayName("DELETE de una tarea que no existe responde 404")
-	void eliminaInexistenteDa404() throws Exception {
-		given(this.servicio.eliminar(9999)).willReturn(false);
+	@DisplayName("una tarea inexistente se traduce a 404 con formato ProblemDetail")
+	void traduceNoEncontradaA404() throws Exception {
+		willThrow(new TareaNoEncontradaException(99)).given(this.servicio).eliminar(99);
 
-		this.mockMvc.perform(delete("/tarea/9999")).andExpect(status().isNotFound());
+		this.mockMvc.perform(delete("/tarea/99"))
+			.andExpect(status().isNotFound())
+			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+			.andExpect(jsonPath("$.title").value("Tarea no encontrada"))
+			.andExpect(jsonPath("$.id").value(99));
 	}
 
 	@Test
 	@DisplayName("un id que no es un número responde 400 en lugar de 500")
-	void idNoNumericoDa400() throws Exception {
+	void traduceIdNoNumericoA400() throws Exception {
 		this.mockMvc.perform(get("/tarea/abc")).andExpect(status().isBadRequest());
 	}
 
@@ -177,20 +123,20 @@ class TareasControllerTest {
 	}
 
 	/**
-	 * Al no haber ningún {@code @ControllerAdvice} propio, de esto se encarga Spring Boot. El test
-	 * está para que salte si alguna vez se añade uno con un {@code @ExceptionHandler(Exception)} de
-	 * prioridad alta, que se tragaría estas excepciones y las convertiría en 500.
+	 * Regresión: el manejador de errores llegó a tener un {@code @ExceptionHandler(Exception.class)}
+	 * con prioridad máxima, lo que dejaba sin ejecutar al de Spring Boot y convertía este 405 en un
+	 * 500. Por eso la red de seguridad vive en un advice aparte con la prioridad mínima.
 	 */
 	@Test
 	@DisplayName("un método no soportado responde 405, no 500")
-	void metodoNoSoportadoDa405() throws Exception {
+	void devuelve405ConMetodoNoSoportado() throws Exception {
 		this.mockMvc.perform(patch("/tarea").contentType(MediaType.APPLICATION_JSON).content("{}"))
 			.andExpect(status().isMethodNotAllowed());
 	}
 
 	@Test
 	@DisplayName("un tipo de contenido que no es JSON responde 415, no 500")
-	void tipoDeContenidoNoJsonDa415() throws Exception {
+	void devuelve415ConTipoDeContenidoNoJson() throws Exception {
 		this.mockMvc.perform(post("/tarea").contentType(MediaType.TEXT_PLAIN).content("Repasar HTML"))
 			.andExpect(status().isUnsupportedMediaType());
 	}

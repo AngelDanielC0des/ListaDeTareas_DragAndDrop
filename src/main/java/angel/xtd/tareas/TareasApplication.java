@@ -2,6 +2,7 @@ package angel.xtd.tareas;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
 
 /**
  * Punto de entrada de la aplicación.
@@ -11,6 +12,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * no hace falta configurar CORS.
  */
 @SpringBootApplication
+@ConfigurationPropertiesScan
 public class TareasApplication {
 
 	public static void main(String[] args) {
