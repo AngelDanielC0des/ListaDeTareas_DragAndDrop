@@ -4,12 +4,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ApplicationContext;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import angel.xtd.tareas.almacen.AlmacenTareas;
 import angel.xtd.tareas.controller.TareasController;
@@ -34,6 +37,13 @@ import angel.xtd.tareas.service.TareasService;
 	"app.almacen.ruta-de-fondos=${java.io.tmpdir}/tareas-test-contexto/fondos.json"
 })
 class TareasApplicationTest {
+
+	/**
+	 * Se filtra por paquete y no se cuentan todos los advices del contexto: springdoc registra el
+	 * suyo para documentar la API, y contar el total haría fallar esta prueba por una dependencia
+	 * que no tiene nada que ver con lo que aquí se comprueba.
+	 */
+	private static final String PAQUETE_RAIZ = "angel.xtd.tareas";
 
 	@Autowired
 	private ApplicationContext contexto;
@@ -66,9 +76,13 @@ class TareasApplicationTest {
 	@Test
 	@DisplayName("el manejador de errores no declara mapeos ambiguos")
 	void elManejadorDeErroresSeRegistraSinAmbiguedades() {
-		assertThat(contexto.getBeansWithAnnotation(org.springframework.web.bind.annotation.RestControllerAdvice.class))
-			.as("debe haber exactamente un advice propio")
-			.hasSize(1);
+		Map<String, Object> propios = contexto.getBeansWithAnnotation(RestControllerAdvice.class)
+			.entrySet()
+			.stream()
+			.filter((bean) -> bean.getValue().getClass().getPackageName().startsWith(PAQUETE_RAIZ))
+			.collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+
+		assertThat(propios).as("debe haber exactamente un advice nuestro").hasSize(1);
 	}
 
 	@Test

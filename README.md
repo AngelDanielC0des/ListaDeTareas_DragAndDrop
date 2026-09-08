@@ -1,12 +1,49 @@
 # Lista de tareas
 
-Aplicación web para gestionar una lista de tareas: **API REST en Java 21 con Spring Boot 4.1** y un
-frontend en HTML, CSS y JavaScript **sin framework ni paso de compilación**. Los datos se guardan en
-archivos JSON; no hace falta base de datos.
+[![build](https://github.com/AngelDanielC0des/ListaDeTareas_DragAndDrop/actions/workflows/build.yml/badge.svg)](https://github.com/AngelDanielC0des/ListaDeTareas_DragAndDrop/actions/workflows/build.yml)
+[![cobertura](https://img.shields.io/badge/cobertura-86%25%20líneas-brightgreen)](#pruebas)
+[![tests](https://img.shields.io/badge/tests-156-brightgreen)](#pruebas)
+[![licencia](https://img.shields.io/badge/licencia-MIT-blue)](LICENSE)
 
-Puedes añadir tareas, marcarlas como completadas, editarlas, reordenarlas arrastrando o con el
-teclado, borrarlas con opción de deshacer, ponerles una imagen de fondo y cambiar entre tema claro y
-oscuro. Todo se guarda solo: no hay botón de guardar.
+Gestor de tareas con reordenación por arrastre, búsqueda y filtros: **API REST en Java 21 con
+Spring Boot 4.1** y un frontend en HTML, CSS y JavaScript **sin framework ni paso de compilación**.
+Los datos se guardan en archivos JSON; no hace falta base de datos.
+
+<!--
+	PENDIENTE, en dos pasos:
+
+	1. Al desplegar, sustituir los dos DEMO_PENDIENTE de abajo por la URL real.
+	2. Al grabar el GIF y las capturas (ver docs/LEEME.md), quitar estas dos líneas de comentario
+	   para que se vean. Van comentadas a propósito: enlazar imágenes que aún no existen deja tres
+	   iconos de imagen rota en la portada del repositorio, que es peor que no poner nada.
+
+![Reordenando tareas arrastrando la tarjeta](docs/arrastre.gif)
+
+| Tema claro | Tema oscuro |
+|---|---|
+| ![Interfaz en tema claro](docs/claro.png) | ![Interfaz en tema oscuro](docs/oscuro.png) |
+-->
+
+**▶️ [Probar la demo](DEMO_PENDIENTE)** · **[Explorar la API](DEMO_PENDIENTE/swagger-ui.html)**
+
+## Qué tiene de particular
+
+Es una lista de tareas, que es el ejemplo más trillado que existe. Lo que puede merecer un rato de
+lectura son las restricciones que se le pusieron encima y cómo se resolvieron:
+
+- **Una tarea son exactamente tres campos** —`id`, `texto` y `completada`— y no se podía añadir
+  ninguno más. Eso obligó a que el orden fuese la posición en el array y a que el fondo de cada
+  tarjeta viva en su propio recurso. La consecuencia buena es que **reordenar no cambia ningún
+  `id`**, así que un `DELETE` que salió justo antes no acaba borrando otra tarea.
+- **Sin paso de compilación en el frontend.** Los archivos que sirve Spring son los archivos fuente:
+  sin `node_modules`, sin empaquetador, sin transpilar. Y aun así **los tipos se verifican en la
+  integración continua**, declarados con JSDoc y comprobados por `tsc` en modo `checkJs`.
+- **Sin base de datos, pero sin perder datos.** Cada cambio se escribe en un archivo temporal que
+  después se mueve sobre el definitivo, de modo que un corte a mitad no deja un JSON truncado; si la
+  escritura falla, el cambio se deshace también en memoria.
+- **Tres ramas encadenadas** que permiten leer la evolución del proyecto por partes, en vez de
+  encontrarse todo hecho de golpe.
+- **Accesibilidad de verdad**, no un `alt` puesto por encima: [ver la sección](#accesibilidad).
 
 ## Las tres versiones
 
@@ -88,6 +125,33 @@ java -jar target\tareas-0.0.1-SNAPSHOT.jar --server.port=9000 --app.almacen.ruta
 - **Tema**: claro, oscuro o el del sistema, con el selector de la cabecera. La elección se recuerda
   en este navegador.
 
+## Buscar y filtrar
+
+Con muchas tareas la lista se hace incómoda, así que hay un campo de búsqueda y tres estados: todas,
+pendientes y completadas. La búsqueda **ignora tildes y mayúsculas**, porque quien escribe «anadir»
+espera encontrar «añadir».
+
+**Con un filtro puesto no se puede reordenar, y es a propósito.** Al ver solo parte de la lista, las
+posiciones que ve el usuario no son las del estado: arrastrar la tercera tarjeta visible a la primera
+no significa nada sobre el orden completo. Antes que inventar una correspondencia frágil, la
+reordenación se desactiva y se explica en pantalla en lugar de dejar que el asa deje de responder sin
+motivo aparente.
+
+## Atajos de teclado
+
+| Tecla | Qué hace |
+|---|---|
+| <kbd>n</kbd> | Escribir una tarea nueva |
+| <kbd>/</kbd> | Buscar entre las tareas |
+| <kbd>Ctrl</kbd> + <kbd>↑</kbd> / <kbd>↓</kbd> | Mover la tarea, con el foco en su asa |
+| <kbd>Intro</kbd> | Confirmar la edición |
+| <kbd>Mayús</kbd> + <kbd>Intro</kbd> | Salto de línea dentro de una tarea |
+| <kbd>Esc</kbd> | Cancelar la edición o cerrar una ventana |
+| <kbd>?</kbd> | Abrir la ayuda de atajos |
+
+La misma lista está dentro de la aplicación, en un `<dialog>` que se abre con <kbd>?</kbd> o desde el
+enlace del pie: un atajo que nadie sabe que existe es un atajo que no existe.
+
 ## La API
 
 Todo se recibe y se devuelve en JSON.
@@ -153,6 +217,39 @@ La escritura es **atómica**: se guarda en un archivo temporal y luego se mueve 
 así que un corte a mitad no deja el archivo truncado. Si la escritura falla, el cambio se deshace
 también en memoria para que las dos no se desincronicen.
 
+## Arquitectura
+
+Tres capas en el servidor, sin repository porque no hay base de datos: el almacén es el guardián del
+estado compartido y de la escritura en disco.
+
+```mermaid
+flowchart LR
+    N["Navegador"] -->|JSON| C["TareasController<br/><i>solo el camino feliz</i>"]
+    C --> S["TareasService<br/><i>lógica y validaciones</i>"]
+    S --> AT["AlmacenTareas<br/><i>lista + cerrojo</i>"]
+    S --> AF["AlmacenFondos<br/><i>TreeMap id → fondo</i>"]
+    AT --> AJ["ArchivoJsonAtomico"]
+    AF --> AJ
+    AJ -->|"escribe .tmp<br/>y lo mueve"| D[("tareas.json<br/>fondos.json")]
+    C -.->|excepciones| E["ManejadorErroresGlobal<br/><i>ProblemDetail, RFC 9457</i>"]
+    E -.->|"400 · 404 · 409 · 500"| N
+```
+
+En el navegador, seis módulos con una responsabilidad cada uno. `estado.js` es la única fuente de
+verdad: el DOM siempre es una proyección suya, nunca se le pregunta qué hay ni en qué orden.
+
+```mermaid
+flowchart TD
+    APP["app.js<br/><i>orquestador</i>"] --> API["api.js<br/><i>única salida a la red</i>"]
+    APP --> EST["estado.js<br/><i>fuente de verdad</i>"]
+    APP --> VIS["vista.js<br/><i>todo lo que toca el DOM</i>"]
+    APP --> ARR["arrastre.js<br/><i>SortableJS + teclado</i>"]
+    APP --> PRE["preferencias.js<br/><i>único que toca localStorage</i>"]
+    VIS --> EST
+    ARR --> EST
+    ARR --> VIS
+```
+
 ## Estructura
 
 ```
@@ -162,12 +259,14 @@ src/main/java/angel/xtd/tareas/
 ├── service/TareasService.java         lógica de negocio
 ├── almacen/AlmacenTareas.java         las tareas en memoria + escritura atómica
 ├── almacen/AlmacenFondos.java         TreeMap<id, fondo> en su propio archivo
+├── almacen/ArchivoJsonAtomico.java    la E/S compartida por los dos almacenes
 ├── dto/                               Tarea (3 campos), Fondo y los cuerpos de petición
 ├── error/                             excepciones de dominio + el @RestControllerAdvice
-└── config/PropiedadesAlmacen.java     rutas de los archivos
+└── config/                            rutas, portada de OpenAPI y datos de la demo
 
 src/main/resources/
 ├── application.properties             configuración
+├── application-demo.properties        perfil de la demostración pública
 ├── messages.properties                traduce al español los errores del framework
 └── static/
     ├── index.html                     HTML semántico + <template> de la tarjeta
@@ -175,11 +274,18 @@ src/main/resources/
     ├── img/                           las 5 imágenes de fondo
     └── js/
         ├── api.js          única puerta hacia la API; interpreta los errores
+        ├── tipos.js        typedefs compartidos; no se carga en el navegador
         ├── preferencias.js único sitio que toca localStorage (solo el tema)
         ├── estado.js       única fuente de verdad del cliente
         ├── vista.js        todo lo que toca el DOM
         ├── arrastre.js     SortableJS + reordenación por teclado
         └── app.js          orquestador
+
+src/test/js/                               pruebas del frontend con Vitest
+├── estado.test.js                     la lógica, sin DOM
+├── api.test.js                        errores y ProblemDetail, con fetch simulado
+├── preferencias.test.js               incluido el localStorage que lanza
+└── vista.test.js                      carga el index.html real en jsdom
 
 src/test/java/angel/xtd/tareas/
 ├── TareasApplicationTest.java             que el contexto de Spring arranca
@@ -274,7 +380,7 @@ El navegador oculta lo marcado con `hidden` mediante una regla de su propia hoja
 el recorte, sin una regla `[hidden] { display: none !important; }` al editar se verían a la vez el
 párrafo y el cuadro de edición. Es la única excepción al «sin `!important`» del proyecto.
 
-### Accesibilidad
+## Accesibilidad
 
 Cada botón dice **de qué tarea es** mediante `aria-label`; sin eso, un lector de pantalla recorrería
 la lista diciendo «Borrar, botón» sin nombrar nunca la tarea. Hay enlace de salto al listado, región
@@ -303,14 +409,74 @@ Están en `src/main/resources/static/img/` como cinco SVG. Para poner las tuyas 
 esos archivos manteniendo el nombre; si usas otro formato, hay que cambiar la extensión en las cinco
 reglas `.tarea--fondo-*` de `estilos.css` y en `abrirSelectorDeFondo` de `vista.js`.
 
+## Docker
+
+```bash
+docker build -t tareas .
+docker run --rm -p 8080:8080 -v tareas-datos:/datos tareas
+```
+
+La imagen se construye en dos etapas, de modo que la final solo lleva un JRE y el jar: ni Maven ni
+el código fuente. El proceso corre con un usuario sin privilegios y los archivos JSON se escriben en
+`/datos`, que es donde conviene montar un volumen para que sobrevivan al contenedor.
+
+## Documentación de la API
+
+Con la aplicación arrancada:
+
+- **`/swagger-ui.html`** — interfaz para leer y **probar** los diez endpoints desde el navegador.
+- **`/v3/api-docs`** — el esquema OpenAPI en JSON.
+
+Se genera con [springdoc](https://springdoc.org/) a partir de las anotaciones que ya lleva el
+controlador, así que no hay un segundo documento que se pueda quedar desactualizado.
+
+## Tipos del frontend, sin compilar nada
+
+El JavaScript no se transpila ni se empaqueta: lo que sirve Spring es exactamente lo que hay en
+`static/js/`. Pero los tipos sí se comprueban, declarados con JSDoc y verificados por TypeScript en
+modo `checkJs` (`jsconfig.json`):
+
+```bash
+npm install     # solo TypeScript, y solo como dependencia de desarrollo
+npm run tipos   # comprueba; es lo que ejecuta la integración continua
+```
+
+VS Code lo aplica solo al abrir el proyecto, así que los errores salen subrayados mientras escribes.
+Se eligió esto en vez de migrar a TypeScript para conservar el «se abre y funciona» sin renunciar a
+la comprobación de tipos.
+
+## Pruebas
+
+**156 pruebas**: 83 del servidor y 73 del navegador.
+
+```bash
+.\mvnw.cmd verify   # las de Java, más el informe de cobertura
+npm test            # las del frontend
+```
+
+Las del servidor cubren el **86 % de las líneas y el 71 % de las ramas**; el informe de JaCoCo queda
+en `target/site/jacoco/index.html`. No hay umbral que rompa la construcción a propósito: perseguir un
+porcentaje lleva a escribir pruebas que no comprueban nada.
+
+Las del navegador viven en `src/test/js/` —**fuera de `static/`, que es lo que se publica**— y usan
+Vitest. Las de `vista.js` **cargan el `index.html` de verdad** en jsdom, así que si alguien renombra
+una clase de la plantilla, la prueba falla igual que fallaría la aplicación. Las de `estado.js`,
+`api.js` y `preferencias.js` no necesitan DOM.
+
+Lo que sí se vigila en las dos suites es que cada prueba **pueda fallar de verdad**. Hay alguna cuyo
+único trabajo es demostrar que el patrón de búsqueda de otra encuentra algo, y las de regresión se
+comprobaron reintroduciendo el fallo para ver que saltaban.
+
 ## Integración continua
 
-Cada empujón dispara un workflow de GitHub Actions que compila y ejecuta los tests en Ubuntu con
-Java 21 (`.github/workflows/build.yml`).
+Cada empujón dispara un workflow de GitHub Actions (`.github/workflows/build.yml`) con dos trabajos
+en paralelo: uno compila y ejecuta los tests en Ubuntu con Java 21, y otro comprueba los tipos del
+frontend.
 
 ## Dependencias
 
-Las de Spring Boot y **una sola del frontend**:
+En el servidor, Spring Boot más [springdoc](https://springdoc.org/) para publicar el OpenAPI. En el
+navegador, **una sola**:
 [SortableJS](https://github.com/SortableJS/Sortable) 1.15.7 (MIT), vendorizada en
 `static/js/vendor/` para que la aplicación funcione sin conexión y sin paso de compilación. Se
 descartó hacer el arrastre a mano porque el layout es una rejilla de 2 a 4 columnas con tarjetas de

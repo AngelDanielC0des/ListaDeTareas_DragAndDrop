@@ -16,24 +16,75 @@
 
 import * as estado from './estado.js';
 
+/**
+ * Busca un elemento por id y falla si no está.
+ *
+ * El `getElementById` del navegador devuelve `null` cuando no encuentra nada, y ese `null` viajaba
+ * silenciosamente hasta el primer intento de usarlo, mucho más tarde y lejos de la causa. Aquí se
+ * corta en el arranque: si alguien renombra un id en el HTML, la consola lo dice al cargar la página
+ * y señala cuál falta.
+ *
+ * El segundo parámetro comprueba además que el elemento sea del tipo que se espera, para poder
+ * escribir `campoTexto.value` sabiendo que de verdad es un `<input>` y no un `<div>` cualquiera.
+ *
+ * @template {typeof Element} T
+ * @param {string} id
+ * @param {T} tipo
+ * @returns {InstanceType<T>}
+ */
+function exigirElemento(id, tipo) {
+	const elemento = document.getElementById(id);
+	if (!(elemento instanceof tipo)) {
+		throw new Error(`Falta en el HTML el elemento #${id} (se esperaba un ${tipo.name})`);
+	}
+	return /** @type {InstanceType<T>} */ (elemento);
+}
+
+/**
+ * Lo mismo que {@link exigirElemento} pero buscando dentro de un elemento y por selector.
+ *
+ * Se usa para las partes de una tarjeta, que salen de clonar la plantilla: si alguien renombra una
+ * clase ahi, esto lo dice en el momento en vez de dejar un `null` suelto.
+ *
+ * @template {typeof Element} T
+ * @param {ParentNode} raiz
+ * @param {string} selector
+ * @param {T} tipo
+ * @returns {InstanceType<T>}
+ */
+function exigirDentro(raiz, selector, tipo) {
+	const elemento = raiz.querySelector(selector);
+	if (!(elemento instanceof tipo)) {
+		throw new Error(`Falta en la plantilla el elemento «${selector}» (se esperaba un ${tipo.name})`);
+	}
+	return /** @type {InstanceType<T>} */ (elemento);
+}
+
 const elementos = {
-	lista: document.getElementById('lista'),
-	plantilla: document.getElementById('plantilla-tarea'),
-	listaVacia: document.getElementById('lista-vacia'),
-	avisoError: document.getElementById('aviso-error'),
-	resumen: document.getElementById('resumen'),
-	contador: document.getElementById('contador'),
-	campoTexto: document.getElementById('campo-texto'),
-	botonAnadir: document.getElementById('boton-anadir'),
-	progreso: document.getElementById('progreso'),
+	lista: exigirElemento('lista', HTMLUListElement),
+	plantilla: exigirElemento('plantilla-tarea', HTMLTemplateElement),
+	listaVacia: exigirElemento('lista-vacia', HTMLElement),
+	avisoError: exigirElemento('aviso-error', HTMLElement),
+	resumen: exigirElemento('resumen', HTMLElement),
+	contador: exigirElemento('contador', HTMLElement),
+	campoTexto: exigirElemento('campo-texto', HTMLInputElement),
+	botonAnadir: exigirElemento('boton-anadir', HTMLButtonElement),
+	progreso: exigirElemento('progreso', HTMLProgressElement),
 	radiosDeTema: document.querySelectorAll('.tema__radio'),
-	avisoDeshacer: document.getElementById('aviso-deshacer'),
-	textoDeshacer: document.getElementById('aviso-deshacer-texto'),
-	botonDeshacer: document.getElementById('boton-deshacer'),
-	anuncios: document.getElementById('anuncios'),
-	selectorFondo: document.getElementById('selector-fondo'),
-	nombreTareaEnSelector: document.getElementById('selector-fondo-tarea'),
-	opcionesDeFondo: document.getElementById('selector-fondo-opciones')
+	avisoDeshacer: exigirElemento('aviso-deshacer', HTMLElement),
+	textoDeshacer: exigirElemento('aviso-deshacer-texto', HTMLElement),
+	botonDeshacer: exigirElemento('boton-deshacer', HTMLButtonElement),
+	anuncios: exigirElemento('anuncios', HTMLElement),
+	selectorFondo: exigirElemento('selector-fondo', HTMLDialogElement),
+	nombreTareaEnSelector: exigirElemento('selector-fondo-tarea', HTMLElement),
+	opcionesDeFondo: exigirElemento('selector-fondo-opciones', HTMLElement),
+	filtros: exigirElemento('filtros', HTMLElement),
+	campoBusqueda: exigirElemento('campo-busqueda', HTMLInputElement),
+	radiosDeFiltro: document.querySelectorAll('.filtros__radio'),
+	sinResultados: exigirElemento('sin-resultados', HTMLElement),
+	avisoArrastre: exigirElemento('aviso-arrastre', HTMLElement),
+	atajos: exigirElemento('atajos', HTMLDialogElement),
+	botonAtajos: exigirElemento('boton-atajos', HTMLButtonElement)
 };
 
 /** Se exponen para que `app.js` y `arrastre.js` cuelguen sus listeners sin volver a buscarlos. */
@@ -41,17 +92,22 @@ export const lista = elementos.lista;
 
 export const campoTexto = elementos.campoTexto;
 
+export const campoBusqueda = elementos.campoBusqueda;
+
 /**
  * Bloquea el botón de añadir mientras va la petición.
  *
  * Sin esto, pulsar Enter dos veces seguidas manda dos POST y crea la tarea por duplicado. Aquí no
  * vale la interfaz optimista: el id lo asigna el servidor, así que hay que esperar su respuesta.
+ *
+ * @param {boolean} bloqueado
  */
 export function bloquearAlta(bloqueado) {
 	elementos.botonAnadir.disabled = bloqueado;
 }
 
 /** Lo fija el servidor al arrancar; hasta entonces no se limita nada por el lado del navegador. */
+/** @type {number | null} */
 let maxCaracteresTexto = null;
 
 /**
@@ -59,11 +115,15 @@ let maxCaracteresTexto = null;
  *
  * El número no está escrito en el HTML ni en este archivo a propósito: la única fuente de verdad es
  * `Tarea.MAX_CARACTERES_TEXTO` en Java, y llega por el endpoint de configuración.
+ *
+ * @param {number} maximo
  */
 export function configurarLimiteDeTexto(maximo) {
 	maxCaracteresTexto = maximo;
 	elementos.campoTexto.maxLength = maximo;
-	for (const editor of elementos.lista.querySelectorAll('.tarea__editor')) {
+	const editores = /** @type {NodeListOf<HTMLTextAreaElement>} */
+		(elementos.lista.querySelectorAll('.tarea__editor'));
+	for (const editor of editores) {
 		editor.maxLength = maximo;
 	}
 	actualizarContador();
@@ -73,16 +133,54 @@ export function configurarLimiteDeTexto(maximo) {
 
 /** Reconstruye la lista completa. Solo para cambios estructurales. */
 export function pintarLista() {
-	const tareas = estado.obtenerTareas();
+	conTransicion(reconstruirLista);
+}
+
+/**
+ * Anima el cambio si el navegador sabe hacerlo, y si no lo aplica de golpe.
+ *
+ * `pintarLista()` reconstruye la lista entera con `replaceChildren`, así que hasta ahora añadir o
+ * borrar una tarea hacía parpadear todas las tarjetas y pegar un salto a lo que había debajo, sin
+ * ninguna transición. La View Transitions API resuelve justo eso: el navegador fotografía el antes y
+ * el después y anima la diferencia él solo, incluidas las tarjetas que se mueven de sitio.
+ *
+ * Es una mejora progresiva. En un navegador que no la traiga, `startViewTransition` no existe y el
+ * cambio se aplica igual, solo que sin animar; nada depende de ella para funcionar. Y si el usuario
+ * ha pedido menos movimiento, ni se intenta: la hoja de estilos también la desactiva, pero saltarla
+ * aquí evita el trabajo de capturar las fotos para luego no usarlas.
+ *
+ * @param {() => void} cambiarElDom
+ */
+function conTransicion(cambiarElDom) {
+	const prefiereMenosMovimiento = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+	const puedeAnimar = typeof document.startViewTransition === 'function' && !prefiereMenosMovimiento;
+
+	if (puedeAnimar) {
+		document.startViewTransition(cambiarElDom);
+	}
+	else {
+		cambiarElDom();
+	}
+}
+
+function reconstruirLista() {
+	const todas = estado.obtenerTareas();
+	const visibles = estado.obtenerTareasVisibles();
 	const idEnEdicion = estado.obtenerIdEnEdicion();
 
 	const fragmento = document.createDocumentFragment();
-	for (const tarea of tareas) {
+	for (const tarea of visibles) {
 		fragmento.appendChild(construirTarjeta(tarea, idEnEdicion === tarea.id));
 	}
 
 	elementos.lista.replaceChildren(fragmento);
-	elementos.listaVacia.hidden = tareas.length > 0;
+
+	// Tres estados distintos que es importante no confundir: no hay ninguna tarea, hay tareas pero
+	// el filtro no encuentra ninguna, o hay resultados.
+	elementos.listaVacia.hidden = todas.length > 0;
+	elementos.filtros.hidden = todas.length === 0;
+	actualizarSinResultados(todas.length, visibles.length);
+	actualizarAvisoDeArrastre();
 
 	actualizarBotonesVerMas();
 	actualizarResumen();
@@ -90,10 +188,85 @@ export function pintarLista() {
 }
 
 /**
+ * El mensaje de «no hay resultados», que no es lo mismo que «no hay tareas».
+ *
+ * @param {number} cuantasHay
+ * @param {number} cuantasSeVen
+ */
+function actualizarSinResultados(cuantasHay, cuantasSeVen) {
+	const sobranTareasPeroNoSeVeNinguna = cuantasHay > 0 && cuantasSeVen === 0;
+	elementos.sinResultados.hidden = !sobranTareasPeroNoSeVeNinguna;
+	if (sobranTareasPeroNoSeVeNinguna) {
+		elementos.sinResultados.textContent = mensajeDeSinResultados();
+	}
+}
+
+function mensajeDeSinResultados() {
+	const { estado: cual, busqueda } = estado.obtenerFiltro();
+
+	let resultado;
+	if (busqueda !== '') {
+		resultado = `Ninguna tarea coincide con «${busqueda}».`;
+	}
+	else if (cual === 'pendientes') {
+		resultado = 'No queda ninguna tarea pendiente.';
+	}
+	else {
+		resultado = 'Todavía no has completado ninguna tarea.';
+	}
+	return resultado;
+}
+
+/** Con un filtro puesto no se puede reordenar, y conviene decirlo en vez de que el asa no responda. */
+function actualizarAvisoDeArrastre() {
+	const hayAlgoQueOrdenar = estado.obtenerTareas().length > 1;
+	elementos.avisoArrastre.hidden = !(estado.hayFiltroActivo() && hayAlgoQueOrdenar);
+}
+
+/** Cuántas tareas se están viendo, para anunciarlo a quien no ve la lista. */
+export function describirResultados() {
+	const visibles = estado.obtenerTareasVisibles().length;
+    const total = estado.obtenerTareas().length;
+
+	let resultado;
+	if (!estado.hayFiltroActivo()) {
+		resultado = `${total} ${total === 1 ? 'tarea' : 'tareas'}.`;
+	}
+	else if (visibles === 0) {
+		resultado = mensajeDeSinResultados();
+	}
+	else {
+		resultado = `${visibles} de ${total} ${total === 1 ? 'tarea' : 'tareas'}.`;
+	}
+	return resultado;
+}
+
+/** @param {(filtro: {estado: string, busqueda: string}) => void} manejador */
+export function alCambiarElFiltro(manejador) {
+	elementos.campoBusqueda.addEventListener('input', () => {
+		manejador({ estado: estadoSeleccionado(), busqueda: elementos.campoBusqueda.value });
+	});
+	for (const radio of elementos.radiosDeFiltro) {
+		radio.addEventListener('change', () => {
+			manejador({ estado: estadoSeleccionado(), busqueda: elementos.campoBusqueda.value });
+		});
+	}
+}
+
+function estadoSeleccionado() {
+	const marcado = /** @type {HTMLInputElement | null} */
+		(document.querySelector('.filtros__radio:checked'));
+	const resultado = marcado?.value ?? 'todas';
+	return resultado;
+}
+
+/**
  * Actualiza una sola tarjeta sin tocar las demás.
  *
  * Es lo que se usa al marcar completada, desplegar el texto o entrar y salir de edición: cambios
  * que no alteran ni cuántas tareas hay ni en qué orden están.
+ *
+ * @param {number} id
  */
 export function actualizarTarjeta(id) {
 	const tarjeta = obtenerTarjetaDeTarea(id);
@@ -113,6 +286,9 @@ export function actualizarTarjeta(id) {
  *
  * Reordenar solo cambia el sitio de un nodo, así que rehacer las N tarjetas sería tirar y volver a
  * crear todo lo que ya estaba bien. Además, moviendo el nodo sobrevive un <textarea> abierto.
+ *
+ * @param {number} desde
+ * @param {number} hasta
  */
 export function moverTarjeta(desde, hasta) {
 	const tarjeta = elementos.lista.children[desde];
@@ -129,9 +305,19 @@ export function moverTarjeta(desde, hasta) {
 	elementos.lista.insertBefore(tarjeta, referencia);
 }
 
+/**
+ * @param {import('./tipos.js').Tarea} tarea
+ * @param {boolean} enEdicion
+ * @returns {HTMLLIElement}
+ */
 function construirTarjeta(tarea, enEdicion) {
-	const resultado = elementos.plantilla.content.firstElementChild.cloneNode(true);
+	const modelo = exigirDentro(elementos.plantilla.content, '.tarea', HTMLLIElement);
+	const resultado = /** @type {HTMLLIElement} */ (modelo.cloneNode(true));
 	resultado.dataset.id = String(tarea.id);
+
+	// El nombre tiene que ser único y estable por tarea: es lo que permite al navegador emparejar
+	// cada tarjeta con la misma de antes y animar el movimiento en vez de un cambio brusco.
+	resultado.style.viewTransitionName = `tarea-${tarea.id}`;
 	rellenarTarjeta(resultado, tarea, enEdicion);
 	return resultado;
 }
@@ -141,6 +327,10 @@ function construirTarjeta(tarea, enEdicion) {
  *
  * Se reparte en cuatro pasos con nombre en lugar de escribirlo todo seguido: cada uno toca una zona
  * distinta de la tarjeta, y así se puede leer solo el que interesa sin tener que recorrer el resto.
+ *
+ * @param {HTMLLIElement} tarjeta
+ * @param {import('./tipos.js').Tarea} tarea
+ * @param {boolean} enEdicion
  */
 function rellenarTarjeta(tarjeta, tarea, enEdicion) {
 	tarjeta.classList.toggle('tarea--completada', tarea.completada);
@@ -153,10 +343,13 @@ function rellenarTarjeta(tarjeta, tarea, enEdicion) {
 	aplicarModoEdicion(tarjeta, enEdicion);
 }
 
-/** La casilla de completada y su etiqueta, que va oculta pero es la que la nombra. */
+/** La casilla de completada y su etiqueta, que va oculta pero es la que la nombra. *
+ * @param {HTMLLIElement} tarjeta
+ * @param {import('./tipos.js').Tarea} tarea
+ */
 function rellenarCasilla(tarjeta, tarea) {
-	const casilla = tarjeta.querySelector('.tarea__casilla');
-	const etiqueta = tarjeta.querySelector('.tarea__control-completada label');
+	const casilla = exigirDentro(tarjeta, '.tarea__casilla', HTMLInputElement);
+	const etiqueta = exigirDentro(tarjeta, '.tarea__control-completada label', HTMLLabelElement);
 
 	casilla.checked = tarea.completada;
 	casilla.id = `casilla-${tarea.id}`;
@@ -175,6 +368,9 @@ function rellenarCasilla(tarjeta, tarea) {
  *
  * Sin esto, un lector de pantalla recorre la lista diciendo «Editar, botón», «Borrar, botón»… sin
  * nombrar nunca la tarea a la que pertenecen.
+ *
+ * @param {HTMLLIElement} tarjeta
+ * @param {import('./tipos.js').Tarea} tarea
  */
 function nombrarLosBotones(tarjeta, tarea) {
 	const nombresPorSelector = {
@@ -185,15 +381,18 @@ function nombrarLosBotones(tarjeta, tarea) {
 	};
 
 	for (const [selector, nombre] of Object.entries(nombresPorSelector)) {
-		tarjeta.querySelector(selector).setAttribute('aria-label', nombre);
+		exigirDentro(tarjeta, selector, Element).setAttribute('aria-label', nombre);
 	}
 }
 
-/** El párrafo que se ve y el cuadro de edición que hay debajo. */
+/** El párrafo que se ve y el cuadro de edición que hay debajo. *
+ * @param {HTMLLIElement} tarjeta
+ * @param {import('./tipos.js').Tarea} tarea
+ */
 function rellenarTextoYEditor(tarjeta, tarea) {
-	tarjeta.querySelector('.tarea__texto').textContent = tarea.texto;
+	exigirDentro(tarjeta, '.tarea__texto', HTMLElement).textContent = tarea.texto;
 
-	const editor = tarjeta.querySelector('.tarea__editor');
+	const editor = exigirDentro(tarjeta, '.tarea__editor', HTMLTextAreaElement);
 	editor.setAttribute('aria-label', 'Editar el texto de la tarea');
 	if (maxCaracteresTexto !== null) {
 		editor.maxLength = maxCaracteresTexto;
@@ -207,12 +406,15 @@ function rellenarTextoYEditor(tarjeta, tarea) {
 	}
 }
 
-/** Alterna entre ver el texto y editarlo. Es lo único que cambia al entrar y salir de la edición. */
+/** Alterna entre ver el texto y editarlo. Es lo único que cambia al entrar y salir de la edición. *
+ * @param {HTMLLIElement} tarjeta
+ * @param {boolean} enEdicion
+ */
 function aplicarModoEdicion(tarjeta, enEdicion) {
-	tarjeta.querySelector('.tarea__texto').hidden = enEdicion;
-	tarjeta.querySelector('.tarea__editor').hidden = !enEdicion;
+	exigirDentro(tarjeta, '.tarea__texto', HTMLElement).hidden = enEdicion;
+	exigirDentro(tarjeta, '.tarea__editor', HTMLElement).hidden = !enEdicion;
 
-	const textoDelBoton = tarjeta.querySelector('[data-accion="editar"] .tarea__accion-texto');
+	const textoDelBoton = exigirDentro(tarjeta, '[data-accion="editar"] .tarea__accion-texto', HTMLElement);
 	if (enEdicion) {
 		textoDelBoton.textContent = 'Listo';
 	}
@@ -238,9 +440,12 @@ function actualizarBotonesVerMas() {
 	tarjetas.forEach((tarjeta, indice) => actualizarBotonVerMasDe(tarjeta, desbordamientos[indice]));
 }
 
-/** Pasada de LECTURA: solo consulta el DOM, no lo modifica. */
+/** Pasada de LECTURA: solo consulta el DOM, no lo modifica. *
+ * @param {Element} tarjeta
+ * @returns {boolean}
+ */
 function medirDesbordamiento(tarjeta) {
-	const parrafo = tarjeta.querySelector('.tarea__texto');
+	const parrafo = exigirDentro(tarjeta, '.tarea__texto', HTMLElement);
 
 	let resultado;
 	if (parrafo.hidden) {
@@ -258,16 +463,19 @@ function medirDesbordamiento(tarjeta) {
  *
  * Son tres casos excluyentes y se escriben como tales, con if/else, en vez de con tres salidas
  * sueltas: así se ve de un vistazo que uno y solo uno se aplica siempre.
+ *
+ * @param {Element} tarjeta
+ * @param {boolean} desborda
  */
 function actualizarBotonVerMasDe(tarjeta, desborda) {
-	const boton = tarjeta.querySelector('.tarea__boton-desplegar');
-	const parrafo = tarjeta.querySelector('.tarea__texto');
+	const boton = exigirDentro(tarjeta, '.tarea__boton-desplegar', HTMLElement);
+	const parrafo = exigirDentro(tarjeta, '.tarea__texto', HTMLElement);
 
 	if (parrafo.hidden) {
 		// Se está editando: el botón de desplegar no pinta nada ahí.
 		boton.hidden = true;
 	}
-	else if (estado.estaDesplegada(Number(tarjeta.dataset.id))) {
+	else if (estado.estaDesplegada(Number(/** @type {HTMLElement} */ (tarjeta).dataset.id))) {
 		// Ya desplegada: al no haber recorte no se puede medir el desbordamiento, pero el botón
 		// tiene que seguir ahí para poder volver a plegarla.
 		boton.hidden = false;
@@ -321,13 +529,23 @@ function enfocarEditorEnEdicion() {
 	}
 }
 
+/**
+ * @param {number} id
+ * @returns {HTMLTextAreaElement | null}
+ */
 function obtenerEditorDeTarea(id) {
-	const resultado = elementos.lista.querySelector(`[data-id="${id}"] .tarea__editor`);
+	const editor = elementos.lista.querySelector(`[data-id="${id}"] .tarea__editor`);
+	const resultado = (editor instanceof HTMLTextAreaElement) ? editor : null;
 	return resultado;
 }
 
+/**
+ * @param {number} id
+ * @returns {HTMLLIElement | null}
+ */
 export function obtenerTarjetaDeTarea(id) {
-	const resultado = elementos.lista.querySelector(`[data-id="${id}"]`);
+	const tarjeta = elementos.lista.querySelector(`[data-id="${id}"]`);
+	const resultado = (tarjeta instanceof HTMLLIElement) ? tarjeta : null;
 	return resultado;
 }
 
@@ -379,6 +597,10 @@ const FONDOS = [
 	{ valor: 'aurora', nombre: 'Aurora' }
 ];
 
+/**
+ * @param {HTMLLIElement} tarjeta
+ * @param {string} fondo
+ */
 function aplicarFondo(tarjeta, fondo) {
 	const llevaFondo = fondo !== estado.SIN_FONDO;
 
@@ -398,6 +620,10 @@ function aplicarFondo(tarjeta, fondo) {
  * <p>Se usa `showModal()` y no `show()`: es lo que atrapa el foco dentro del diálogo, oscurece el
  * resto y habilita el cierre con Escape. Al cerrarse, el navegador devuelve el foco al botón que lo
  * abrió sin que haya que guardarlo a mano.
+ *
+ * @param {import('./tipos.js').Tarea} tarea
+ * @param {string} fondoActual
+ * @param {(fondoElegido: string) => void} alElegir
  */
 export function abrirSelectorDeFondo(tarea, fondoActual, alElegir) {
 	elementos.nombreTareaEnSelector.textContent = tarea.texto;
@@ -429,6 +655,26 @@ export function abrirSelectorDeFondo(tarea, fondoActual, alElegir) {
 	elementos.selectorFondo.showModal();
 }
 
+/**
+ * Abre o cierra la ayuda de atajos.
+ *
+ * Se alterna en vez de solo abrir para que la misma tecla que la saca la guarde, que es lo que
+ * espera quien la ha abierto sin querer.
+ */
+export function alternarAtajos() {
+	if (elementos.atajos.open) {
+		elementos.atajos.close();
+	}
+	else {
+		elementos.atajos.showModal();
+	}
+}
+
+/** @param {() => void} manejador */
+export function alPulsarVerAtajos(manejador) {
+	elementos.botonAtajos.addEventListener('click', manejador);
+}
+
 export function cerrarSelectorDeFondo() {
 	if (elementos.selectorFondo.open) {
 		elementos.selectorFondo.close();
@@ -442,6 +688,8 @@ export function cerrarSelectorDeFondo() {
  *
  * «Sistema» se traduce en quitar el atributo, no en poner un valor: sin él manda el
  * `prefers-color-scheme` de la hoja de estilos, que es exactamente lo que significa esa opción.
+ *
+ * @param {string} tema
  */
 export function aplicarTema(tema) {
 	if (tema === 'claro' || tema === 'oscuro') {
@@ -452,18 +700,27 @@ export function aplicarTema(tema) {
 	}
 
 	for (const radio of elementos.radiosDeTema) {
-		radio.checked = (radio.value === tema);
+		if (radio instanceof HTMLInputElement) {
+			radio.checked = (radio.value === tema);
+		}
 	}
 }
 
+/** @param {(tema: string) => void} manejador */
 export function alCambiarElTema(manejador) {
 	for (const radio of elementos.radiosDeTema) {
-		radio.addEventListener('change', () => manejador(radio.value));
+		if (radio instanceof HTMLInputElement) {
+			radio.addEventListener('change', () => manejador(radio.value));
+		}
 	}
 }
 
 /* ------------------------------------------------------- Aviso de deshacer */
 
+/**
+ * @param {string} textoDeLaTarea
+ * @param {() => void} alPulsarDeshacer
+ */
 export function mostrarDeshacer(textoDeLaTarea, alPulsarDeshacer) {
 	elementos.textoDeshacer.textContent = `Tarea borrada: «${textoDeLaTarea}»`;
 	elementos.avisoDeshacer.hidden = false;
@@ -482,8 +739,12 @@ export function enfocarDeshacer() {
 }
 
 /** Devuelve el foco a una tarjeta concreta, por ejemplo tras deshacer un borrado. */
+/** @param {number} id */
 export function enfocarTarjeta(id) {
-	obtenerTarjetaDeTarea(id)?.querySelector('.tarea__casilla')?.focus();
+	const casilla = obtenerTarjetaDeTarea(id)?.querySelector('.tarea__casilla');
+	if (casilla instanceof HTMLElement) {
+		casilla.focus();
+	}
 }
 
 export function ocultarDeshacer() {
@@ -494,6 +755,7 @@ export function ocultarDeshacer() {
 /* --------------------------------------------------------------------- Avisos */
 
 /** Único punto donde se muestra un error al usuario, sea de red, de validación o del servidor. */
+/** @param {string} mensaje */
 export function mostrarError(mensaje) {
 	elementos.avisoError.textContent = mensaje;
 	elementos.avisoError.hidden = false;
@@ -505,6 +767,7 @@ export function limpiarError() {
 }
 
 /** Mensaje solo para lectores de pantalla: cambios que se ven pero no se «oyen». */
+/** @param {string} mensaje */
 export function anunciar(mensaje) {
 	elementos.anuncios.textContent = mensaje;
 }

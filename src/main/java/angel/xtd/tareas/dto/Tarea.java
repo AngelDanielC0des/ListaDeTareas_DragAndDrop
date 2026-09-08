@@ -1,5 +1,7 @@
 package angel.xtd.tareas.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
+
 /**
  * Una tarea de la lista.
  *
@@ -10,7 +12,16 @@ package angel.xtd.tareas.dto;
  * <p>Es un {@code record}, es decir inmutable: modificar una tarea significa crear otra
  * ({@link #conCompletada}), lo que elimina de raíz los errores por estado compartido entre hilos.
  */
-public record Tarea(int id, String texto, boolean completada) {
+public record Tarea(
+
+		@Schema(description = "Identidad de la tarea. No cambia nunca, ni siquiera al reordenar.", example = "1")
+		int id,
+
+		@Schema(description = "Lo que escribió el usuario.", example = "Comprar pan")
+		String texto,
+
+		@Schema(description = "Si ya está hecha.", example = "false")
+		boolean completada) {
 
 	/**
 	 * Longitud máxima del texto.

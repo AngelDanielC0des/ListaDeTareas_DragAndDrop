@@ -31,13 +31,25 @@ const RETARDO_GUARDADO_DE_ORDEN = 300;
 /** Margen para arrepentirse de un borrado antes de que salga la petición. */
 const ESPERA_PARA_DESHACER = 6000;
 
-const formulario = document.getElementById('formulario-nueva');
+const formulario = exigirFormularioDeAlta();
 
+/** Falla al cargar, y no en el primer clic, si alguien renombra el id en el HTML. */
+function exigirFormularioDeAlta() {
+	const elemento = document.getElementById('formulario-nueva');
+	if (!(elemento instanceof HTMLFormElement)) {
+		throw new Error('Falta en el HTML el formulario #formulario-nueva');
+	}
+	return elemento;
+}
+
+/** @type {ReturnType<typeof setTimeout> | null} */
 let temporizadorDeTexto = null;
 
+/** @type {ReturnType<typeof setTimeout> | null} */
 let temporizadorDeOrden = null;
 
 /** Estado de la lista antes de la primera reordenación de una ráfaga, por si hay que deshacerla. */
+/** @type {import('./tipos.js').Tarea[] | null} */
 let respaldoAntesDeReordenar = null;
 
 /**
@@ -56,7 +68,7 @@ const ultimaSecuenciaPorOperacion = new Map();
  * Guarda la posición además de la tarea: reponerla al final al deshacer la dejaría en un sitio que
  * no es el suyo.
  *
- * @type {{tarea: object, posicion: number, temporizador: number} | null}
+ * @type {{tarea: import('./tipos.js').Tarea, posicion: number, temporizador: ReturnType<typeof setTimeout>} | null}
  */
 let borradoPendiente = null;
 
@@ -113,16 +125,20 @@ function registrarEventos() {
 	vista.lista.addEventListener('click', alPulsarEnLista);
 	vista.lista.addEventListener('change', alCambiarCasilla);
 	vista.lista.addEventListener('input', alEscribirEnEditor);
-	vista.lista.addEventListener('keydown', alTeclearEnEditor);
+	vista.lista.addEventListener('keydown', (evento) => alTeclearEnEditor(/** @type {KeyboardEvent} */ (evento)));
 	// El foco no burbujea, pero focusout sí, que es lo que permite delegarlo en el contenedor.
 	vista.lista.addEventListener('focusout', alSalirDelEditor);
+
+	vista.alCambiarElFiltro((filtro) => aplicarFiltro(filtro));
+
+	vista.alPulsarVerAtajos(() => vista.alternarAtajos());
 
 	vista.alCambiarElTema((tema) => {
 		preferencias.guardarTema(tema);
 		vista.aplicarTema(tema);
 	});
 
-	document.addEventListener('keydown', alPulsarAtajo);
+	document.addEventListener('keydown', (evento) => alPulsarAtajo(evento));
 
 	// Si la pestaña se cierra con un borrado a medias, se manda igualmente: si no, la tarea
 	// reaparecería al volver y el borrado parecería no haber funcionado.
@@ -141,10 +157,14 @@ function registrarEventos() {
  * no como cuatro `if` sueltos con su `return`: de un vistazo se ve que forman una sola decisión y
  * que están todos contemplados.
  */
+/** @param {Event} evento */
 function alPulsarEnLista(evento) {
+	if (!(evento.target instanceof Element)) {
+		return;
+	}
 	const boton = evento.target.closest('button');
 	const id = idDeLaTarjetaDe(boton);
-	if (id === null) {
+	if (boton === null || id === null) {
 		return;
 	}
 
@@ -171,6 +191,7 @@ function alPulsarEnLista(evento) {
 }
 
 /** Entrar o salir de la edición, según si esa tarea ya se estaba editando. */
+/** @param {number} id */
 function alternarEdicion(id) {
 	if (estado.obtenerIdEnEdicion() === id) {
 		terminarEdicion(id, { cancelar: false });
@@ -185,49 +206,62 @@ function alternarEdicion(id) {
  *
  * Recoge el `Number(...closest('.tarea').dataset.id)` que estaba repetido en los cinco manejadores,
  * y de paso les quita la comprobación de que el elemento exista, que cada uno hacía a su manera.
+ *
+ * @param {Element | null | undefined} elemento
+ * @returns {number | null}
  */
 function idDeLaTarjetaDe(elemento) {
 	const tarjeta = elemento?.closest('.tarea');
 
+	/** @type {number | null} */
 	let resultado = null;
-	if (tarjeta) {
+	if (tarjeta instanceof HTMLElement) {
 		resultado = Number(tarjeta.dataset.id);
 	}
 	return resultado;
 }
 
+/** @param {Event} evento */
 function alCambiarCasilla(evento) {
-	const casilla = evento.target.closest('.tarea__casilla');
-	if (!casilla) {
+	const casilla = (evento.target instanceof Element) ? evento.target.closest('.tarea__casilla') : null;
+	if (!(casilla instanceof HTMLInputElement)) {
 		return;
 	}
-	cambiarCompletada(idDeLaTarjetaDe(casilla), casilla.checked);
+	const id = idDeLaTarjetaDe(casilla);
+	if (id !== null) {
+		cambiarCompletada(id, casilla.checked);
+	}
 }
 
+/** @param {Event} evento */
 function alEscribirEnEditor(evento) {
-	const editor = evento.target.closest('.tarea__editor');
-	if (!editor) {
+	const editor = (evento.target instanceof Element) ? evento.target.closest('.tarea__editor') : null;
+	if (!(editor instanceof HTMLTextAreaElement)) {
 		return;
 	}
 	const id = idDeLaTarjetaDe(editor);
-	const tarea = estado.buscarTareaPorId(id);
-	if (!tarea) {
+	const tarea = (id === null) ? null : estado.buscarTareaPorId(id);
+	if (id === null || tarea === null) {
 		return;
 	}
 
 	// Se actualiza el estado sin refrescar la tarjeta: hacerlo movería el cursor a cada tecla.
 	estado.reemplazarTarea({ ...tarea, texto: editor.value });
 
-	clearTimeout(temporizadorDeTexto);
+	clearTimeout(temporizadorDeTexto ?? undefined);
 	temporizadorDeTexto = setTimeout(() => guardarTexto(id), RETARDO_GUARDADO_DE_TEXTO);
 }
 
+/** @param {KeyboardEvent} evento */
 function alTeclearEnEditor(evento) {
-	const editor = evento.target.closest('.tarea__editor');
-	if (!editor) {
+	const editor = (evento.target instanceof Element) ? evento.target.closest('.tarea__editor') : null;
+	if (!(editor instanceof HTMLTextAreaElement)) {
 		return;
 	}
 	const id = idDeLaTarjetaDe(editor);
+	if (id === null) {
+		return;
+	}
 
 	if (evento.key === 'Escape') {
 		evento.preventDefault();
@@ -241,16 +275,38 @@ function alTeclearEnEditor(evento) {
 	}
 }
 
+/** @param {Event} evento */
 function alSalirDelEditor(evento) {
-	const editor = evento.target.closest('.tarea__editor');
-	if (!editor) {
+	const editor = (evento.target instanceof Element) ? evento.target.closest('.tarea__editor') : null;
+	if (!(editor instanceof HTMLTextAreaElement)) {
 		return;
 	}
-	terminarEdicion(idDeLaTarjetaDe(editor), { cancelar: false });
+	const id = idDeLaTarjetaDe(editor);
+	if (id !== null) {
+		terminarEdicion(id, { cancelar: false });
+	}
+}
+
+/**
+ * Aplica el filtro y repinta.
+ *
+ * Al filtrar se desactiva la reordenación: con parte de la lista oculta, las posiciones que ve el
+ * usuario no son las del estado, y arrastrar produciría un orden que no significa lo que parece.
+ *
+ * @param {{estado: string, busqueda: string}} filtro
+ */
+function aplicarFiltro(filtro) {
+	estado.filtrarPorEstado(/** @type {'todas' | 'pendientes' | 'completadas'} */ (filtro.estado));
+	estado.buscar(filtro.busqueda);
+
+	vista.pintarLista();
+	arrastre.permitirReordenar(!estado.hayFiltroActivo());
+	vista.anunciar(vista.describirResultados());
 }
 
 /* ----------------------------------------------------------------- Acciones */
 
+/** @param {string} texto */
 async function anadirTarea(texto) {
 	const textoLimpio = texto.trim();
 	if (textoLimpio.length === 0) {
@@ -280,6 +336,10 @@ async function anadirTarea(texto) {
 	}
 }
 
+/**
+ * @param {number} id
+ * @param {boolean} completada
+ */
 async function cambiarCompletada(id, completada) {
 	const tarea = estado.buscarTareaPorId(id);
 	if (!tarea) {
@@ -314,6 +374,8 @@ async function cambiarCompletada(id, completada) {
  * **La petición se retrasa a propósito.** Mandar el DELETE de inmediato y «deshacer» creando la
  * tarea otra vez no serviría: la nueva tendría un id distinto y aparecería al final de la lista, no
  * en su sitio. Esperando, la tarea conserva su id y su posición.
+ *
+ * @param {number} id
  */
 function eliminarTarea(id) {
 	const tarea = estado.buscarTareaPorId(id);
@@ -404,12 +466,12 @@ function vaciarGuardadoDeTextoPendiente() {
 	if (temporizadorDeTexto === null) {
 		return;
 	}
-	clearTimeout(temporizadorDeTexto);
+	clearTimeout(temporizadorDeTexto ?? undefined);
 	temporizadorDeTexto = null;
 
 	const id = estado.obtenerIdEnEdicion();
 	const tarea = (id === null) ? null : estado.buscarTareaPorId(id);
-	if (tarea === null) {
+	if (id === null || tarea === null) {
 		return;
 	}
 
@@ -425,7 +487,7 @@ function vaciarGuardadoDeOrdenPendiente() {
 	if (temporizadorDeOrden === null) {
 		return;
 	}
-	clearTimeout(temporizadorDeOrden);
+	clearTimeout(temporizadorDeOrden ?? undefined);
 	temporizadorDeOrden = null;
 	respaldoAntesDeReordenar = null;
 
@@ -450,6 +512,8 @@ function confirmarBorradoAlSalir() {
  *
  * El servidor devuelve el mapa de fondos ya actualizado, así que no hace falta recomponerlo aquí ni
  * dar por hecho que la escritura ha ido bien: se pinta lo que el servidor dice que hay.
+ *
+ * @param {number} id
  */
 function elegirFondo(id) {
 	const tarea = estado.buscarTareaPorId(id);
@@ -477,6 +541,11 @@ function elegirFondo(id) {
  *
  * @param {boolean} elDomYaEstaMovido SortableJS mueve el nodo él mismo antes de avisar; el teclado
  * no, así que en ese caso hay que moverlo aquí.
+ *
+ * @param {number} desde
+ * @param {number} hasta
+ * @param {boolean} [elDomYaEstaMovido] SortableJS mueve el nodo él mismo antes de avisar; el teclado
+ * no, así que en ese caso hay que moverlo aquí.
  */
 function moverTarea(desde, hasta, elDomYaEstaMovido = false) {
 	const respaldo = estado.copiarTareas();
@@ -490,7 +559,7 @@ function moverTarea(desde, hasta, elDomYaEstaMovido = false) {
 		vista.moverTarjeta(desde, hasta);
 	}
 
-	clearTimeout(temporizadorDeOrden);
+	clearTimeout(temporizadorDeOrden ?? undefined);
 	temporizadorDeOrden = setTimeout(guardarOrden, RETARDO_GUARDADO_DE_ORDEN);
 }
 
@@ -516,6 +585,7 @@ async function guardarOrden() {
 
 /* ----------------------------------------------------------------- Edición */
 
+/** @param {number} id */
 function empezarEdicion(id) {
 	const tarea = estado.buscarTareaPorId(id);
 	if (!tarea) {
@@ -530,12 +600,15 @@ function empezarEdicion(id) {
  *
  * La primera comprobación no es cosmética: salir del <textarea> dispara un focusout que vuelve a
  * entrar aquí. Comparar con el estado corta esa reentrada.
+ *
+ * @param {number} id
+ * @param {{cancelar: boolean}} opciones
  */
 function terminarEdicion(id, { cancelar }) {
 	if (estado.obtenerIdEnEdicion() !== id) {
 		return;
 	}
-	clearTimeout(temporizadorDeTexto);
+	clearTimeout(temporizadorDeTexto ?? undefined);
 	temporizadorDeTexto = null;
 
 	const textoOriginal = estado.obtenerTextoOriginalDeEdicion();
@@ -551,7 +624,7 @@ function terminarEdicion(id, { cancelar }) {
 
 	if (cancelar || quedaVacio) {
 		// El servidor rechazaría un texto vacío, así que se restaura antes de intentarlo siquiera.
-		if (tarea) {
+		if (tarea !== null) {
 			estado.reemplazarTarea({ ...tarea, texto: textoOriginal });
 		}
 		if (quedaVacio && !cancelar) {
@@ -571,6 +644,7 @@ function terminarEdicion(id, { cancelar }) {
 	}
 }
 
+/** @param {number} id */
 async function guardarTexto(id) {
 	const tarea = estado.buscarTareaPorId(id);
 	if (!tarea) {
@@ -607,48 +681,71 @@ async function guardarTexto(id) {
 }
 
 /**
- * `n` enfoca el campo de nueva tarea.
+ * `n` enfoca el campo de nueva tarea, `/` el de búsqueda y `?` abre la ayuda de atajos.
  *
- * Se ignora si el foco ya está en un campo de texto —si no, no se podría escribir la letra n— y si
- * hay algún modificador, para no pisar los atajos del navegador.
+ * Se ignoran si el foco ya está en un campo de texto —si no, no se podrían teclear— y si hay algún
+ * modificador, para no pisar los atajos del navegador.
+ *
+ * @param {KeyboardEvent} evento
  */
 function alPulsarAtajo(evento) {
-	if (evento.key !== 'n' || evento.ctrlKey || evento.altKey || evento.metaKey) {
+	const esAtajoConocido = evento.key === 'n' || evento.key === '/' || evento.key === '?';
+	if (!esAtajoConocido || evento.ctrlKey || evento.altKey || evento.metaKey) {
 		return;
 	}
-	// Con el selector de fondo abierto el atajo no pinta nada: el campo de alta queda detrás de un
-	// modal y por tanto inerte, así que enfocarlo no haría nada y encima nos comeríamos la tecla.
+
+	// Con un diálogo abierto los campos de detrás quedan inertes, así que enfocarlos no haría nada y
+	// encima nos comeríamos la tecla. La ayuda es la excepción: «?» también sirve para cerrarla.
 	const hayDialogoAbierto = document.querySelector('dialog[open]') !== null;
-	if (hayDialogoAbierto) {
+	if (hayDialogoAbierto && evento.key !== '?') {
 		return;
 	}
 
 	// Se excluyen solo los campos donde se escribe. Las casillas y los botones también son
 	// elementos de formulario, pero ahí la «n» no se teclea, así que el atajo debe seguir valiendo.
-	const escribiendo = evento.target.closest(
+	const escribiendo = (evento.target instanceof Element) && evento.target.closest(
 		'textarea, [contenteditable], input:not([type="checkbox"]):not([type="radio"])');
 	if (escribiendo) {
 		return;
 	}
 
 	evento.preventDefault();
-	vista.campoTexto.focus();
+	if (evento.key === '?') {
+		vista.alternarAtajos();
+	}
+	else if (evento.key === '/') {
+		vista.campoBusqueda.focus();
+	}
+	else {
+		vista.campoTexto.focus();
+	}
 }
 
 /* ------------------------------------------- Secuencias y manejo de errores */
 
+/**
+ * @param {string} operacion
+ * @returns {number}
+ */
 function anotarNuevaPeticion(operacion) {
 	const secuencia = (ultimaSecuenciaPorOperacion.get(operacion) ?? 0) + 1;
 	ultimaSecuenciaPorOperacion.set(operacion, secuencia);
 	return secuencia;
 }
 
+/**
+ * @param {string} operacion
+ * @param {number} secuencia
+ */
 function esLaPeticionMasReciente(operacion, secuencia) {
 	const resultado = ultimaSecuenciaPorOperacion.get(operacion) === secuencia;
 	return resultado;
 }
 
-/** Deshace un cambio optimista que el servidor ha rechazado y explica por qué. */
+/** Deshace un cambio optimista que el servidor ha rechazado y explica por qué. *
+ * @param {import('./tipos.js').Tarea[] | null} respaldo
+ * @param {unknown} error
+ */
 function deshacerCambioOptimista(respaldo, error) {
 	if (respaldo !== null) {
 		estado.reemplazarTareas(respaldo);
@@ -657,7 +754,9 @@ function deshacerCambioOptimista(respaldo, error) {
 	manejarError(error);
 }
 
-/** Único punto donde un error se convierte en algo que el usuario puede leer. */
+/** Único punto donde un error se convierte en algo que el usuario puede leer. *
+ * @param {unknown} error
+ */
 function manejarError(error) {
 	const mensaje = (error instanceof ErrorApi)
 		? error.mensajeUsuario

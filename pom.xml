@@ -41,6 +41,17 @@
 			<optional>true</optional>
 		</dependency>
 
+		<!--
+			Documentacion viva de la API: lee las anotaciones de Spring MVC y las de validacion y
+			publica un OpenAPI en /v3/api-docs y una interfaz para probarlo en /swagger-ui.html.
+			La linea 3.x es la que acompana a Spring Boot 4; la 2.x se queda en Boot 3.
+		-->
+		<dependency>
+			<groupId>org.springdoc</groupId>
+			<artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+			<version>3.0.0</version>
+		</dependency>
+
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-devtools</artifactId>
@@ -78,11 +89,45 @@
 					</execution>
 				</executions>
 			</plugin>
+			<!--
+				Cobertura. El agente se engancha en la fase de test y el informe HTML queda en
+				target/site/jacoco. No se pone un umbral que rompa la construccion: seria una cifra
+				inventada, y perseguir un porcentaje lleva a escribir pruebas que no comprueban nada.
+			-->
+			<plugin>
+				<groupId>org.jacoco</groupId>
+				<artifactId>jacoco-maven-plugin</artifactId>
+				<version>0.8.13</version>
+				<executions>
+					<execution>
+						<id>preparar-agente</id>
+						<goals>
+							<goal>prepare-agent</goal>
+						</goals>
+						<configuration>
+							<propertyName>jacocoArgLine</propertyName>
+						</configuration>
+					</execution>
+					<execution>
+						<id>informe</id>
+						<phase>verify</phase>
+						<goals>
+							<goal>report</goal>
+						</goals>
+					</execution>
+				</executions>
+			</plugin>
+
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-surefire-plugin</artifactId>
 				<configuration>
-					<argLine>-javaagent:${org.mockito:mockito-core:jar}</argLine>
+					<!--
+						Dos agentes: el de Mockito, que evita el aviso de auto-adjuntarse, y el de
+						JaCoCo, que llega en la propiedad jacocoArgLine. Se le da nombre propio a esa
+						propiedad en vez de usar la de por defecto para no pisar esta linea.
+					-->
+					<argLine>@{jacocoArgLine} -javaagent:${org.mockito:mockito-core:jar}</argLine>
 				</configuration>
 			</plugin>
 		</plugins>

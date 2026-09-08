@@ -1,5 +1,6 @@
 package angel.xtd.tareas.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
@@ -11,6 +12,7 @@ import jakarta.validation.constraints.Size;
  */
 public record CrearTareaPeticion(
 
+		@Schema(description = "Texto de la tarea nueva", example = "Comprar pan")
 		@NotBlank(message = "El texto de la tarea no puede estar vacío")
 		@Size(max = Tarea.MAX_CARACTERES_TEXTO, message = "El texto no puede superar los {max} caracteres")
 		String texto) {

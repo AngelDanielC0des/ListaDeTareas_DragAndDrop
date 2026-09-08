@@ -1,5 +1,6 @@
 package angel.xtd.tareas.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotNull;
 
 /**
@@ -11,6 +12,7 @@ import jakarta.validation.constraints.NotNull;
  */
 public record CambiarFondoPeticion(
 
+		@Schema(description = "Uno de los valores del enum. «ninguno» quita el fondo.", example = "ondas")
 		@NotNull(message = "Hay que indicar el fondo")
 		Fondo fondo) {
 

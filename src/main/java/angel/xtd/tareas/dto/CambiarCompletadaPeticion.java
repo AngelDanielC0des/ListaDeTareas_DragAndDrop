@@ -1,5 +1,6 @@
 package angel.xtd.tareas.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotNull;
 
 /**
@@ -11,6 +12,7 @@ import jakarta.validation.constraints.NotNull;
  */
 public record CambiarCompletadaPeticion(
 
+		@Schema(description = "Nuevo estado de la tarea", example = "true")
 		@NotNull(message = "Hay que indicar si la tarea está completada")
 		Boolean completada) {
 

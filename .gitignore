@@ -31,3 +31,6 @@ bin/
 
 ### VS Code ###
 .vscode/
+
+### Node (solo herramientas de desarrollo: la aplicacion no se compila) ###
+node_modules/

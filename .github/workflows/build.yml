@@ -1,0 +1,70 @@
+# Compila y ejecuta los tests en cada empujón a cualquiera de las tres versiones.
+#
+# Usa ./mvnw, así que depende de que el bit de ejecución de ese archivo esté puesto en git
+# (git update-index --chmod=+x mvnw); si no, aquí fallaría con "Permission denied".
+name: build
+
+on:
+  push:
+    branches: [master, listatareasv1, listatareasv0]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  verificar:
+    name: Compilar y probar
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Preparar Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Compilar y ejecutar los tests
+        run: ./mvnw --batch-mode --no-transfer-progress clean verify
+
+      - name: Publicar los informes de los tests
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: informes-surefire
+          path: target/surefire-reports/
+          if-no-files-found: ignore
+
+      - name: Publicar el informe de cobertura
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: informe-jacoco
+          path: target/site/jacoco/
+          if-no-files-found: ignore
+
+  # El frontend no se compila —los archivos que se sirven son los archivos fuente— pero sí se
+  # comprueban sus tipos y se ejecutan sus pruebas. Va en un job aparte porque no depende de Java y
+  # así los dos corren a la vez.
+  frontend:
+    name: Tipos y pruebas del frontend
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Preparar Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Instalar
+        run: npm ci
+
+      - name: Comprobar los tipos
+        run: npm run tipos
+
+      - name: Ejecutar las pruebas del frontend
+        run: npm test

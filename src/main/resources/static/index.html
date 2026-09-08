@@ -99,18 +99,123 @@
 		</div>
 
 		<h2 class="visualmente-oculto">Listado de tareas</h2>
+
+		<!--
+			Filtro y búsqueda. Va oculto mientras no haya tareas: unos controles para filtrar una lista
+			vacía solo estorban.
+
+			Los tres estados son <input type="radio"> dentro de un <fieldset>, igual que el selector de
+			tema: traen puestos el agrupado semántico y la navegación con flechas, sin ARIA a mano.
+		-->
+		<div class="filtros" id="filtros" hidden>
+			<div class="filtros__busqueda">
+				<label class="visualmente-oculto" for="campo-busqueda">Buscar en las tareas</label>
+				<svg class="filtros__lupa icono" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+					<circle cx="11" cy="11" r="7" />
+					<path d="M20 20l-4-4" />
+				</svg>
+				<input class="filtros__campo" id="campo-busqueda" type="search" autocomplete="off"
+					placeholder="Buscar…  (pulsa /)">
+			</div>
+
+			<fieldset class="filtros__estados">
+				<legend class="visualmente-oculto">Qué tareas mostrar</legend>
+				<label class="filtros__opcion">
+					<input class="filtros__radio" type="radio" name="filtro-estado" value="todas" checked>
+					<span class="filtros__texto">Todas</span>
+				</label>
+				<label class="filtros__opcion">
+					<input class="filtros__radio" type="radio" name="filtro-estado" value="pendientes">
+					<span class="filtros__texto">Pendientes</span>
+				</label>
+				<label class="filtros__opcion">
+					<input class="filtros__radio" type="radio" name="filtro-estado" value="completadas">
+					<span class="filtros__texto">Completadas</span>
+				</label>
+			</fieldset>
+		</div>
+
+		<!--
+			Aviso de que el arrastre está desactivado. Con un filtro puesto solo se ve parte de la
+			lista, y arrastrar dentro de una lista parcial no puede producir un orden completo
+			coherente. Se dice en vez de dejar que el asa deje de responder sin explicación.
+		-->
+		<p class="aviso-arrastre" id="aviso-arrastre" hidden>
+			Con un filtro puesto no se puede reordenar. Vuelve a «Todas» y quita la búsqueda para mover
+			tareas.
+		</p>
+
 		<ul class="lista" id="lista" role="list" tabindex="-1"></ul>
 
-		<p class="lista-vacia" id="lista-vacia" hidden>Todavía no hay tareas. Añade la primera ahí arriba.</p>
+		<!-- Cuando el filtro no encuentra nada. Es distinto de no tener ninguna tarea. -->
+		<p class="sin-resultados" id="sin-resultados" hidden></p>
+
+		<!--
+			Estado vacío. El dibujo es decorativo y va con aria-hidden: lo que cuenta lo dice el
+			texto, y un lector de pantalla no gana nada anunciando una lista dibujada.
+		-->
+		<div class="lista-vacia" id="lista-vacia" hidden>
+			<svg class="lista-vacia__dibujo" viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+				<rect x="12" y="8" width="40" height="48" rx="4" />
+				<path d="M22 22h20M22 32h20M22 42h12" />
+				<circle cx="46" cy="46" r="10" class="lista-vacia__marca" />
+				<path d="M42 46l3 3 6-6" class="lista-vacia__tic" />
+			</svg>
+			<p class="lista-vacia__titulo">Aquí no hay nada todavía</p>
+			<p class="lista-vacia__ayuda">
+				Escribe tu primera tarea ahí arriba, o pulsa <kbd>n</kbd> para ir al campo.
+			</p>
+		</div>
 	</main>
 
 	<footer class="pie">
 		<p class="pie__texto">Arrastra por el asa <span aria-hidden="true">⠿</span> para reordenar. Con el teclado:
-			<kbd>Ctrl</kbd> + <kbd>↑</kbd> / <kbd>↓</kbd>. Pulsa <kbd>n</kbd> para escribir una tarea nueva.</p>
+			<kbd>Ctrl</kbd> + <kbd>↑</kbd> / <kbd>↓</kbd>. Pulsa <kbd>n</kbd> para escribir una tarea nueva,
+		<kbd>/</kbd> para buscar.
+		<button class="pie__enlace" id="boton-atajos" type="button">Ver todos los atajos</button>
+		o pulsa <kbd>?</kbd>.</p>
 	</footer>
 
 	<!-- Región para lectores de pantalla: anuncia los cambios que se ven pero no se «oyen». -->
 	<div class="visualmente-oculto" id="anuncios" role="status" aria-live="polite"></div>
+
+	<!--
+		Panel de atajos. Es el mismo patrón que el selector de fondo: un <dialog> nativo, que trae el
+		foco atrapado, el cierre con Escape y la devolución del foco al elemento que lo abrió.
+
+		Existe porque la aplicación se puede manejar entera con el teclado y hasta ahora eso solo se
+		intuía por una línea del pie. Un atajo que nadie sabe que existe es un atajo que no existe.
+	-->
+	<dialog class="atajos" id="atajos" aria-labelledby="atajos-titulo">
+		<h2 class="atajos__titulo" id="atajos-titulo">Atajos de teclado</h2>
+
+		<dl class="atajos__lista">
+			<dt><kbd>n</kbd></dt>
+			<dd>Escribir una tarea nueva</dd>
+
+			<dt><kbd>/</kbd></dt>
+			<dd>Buscar entre las tareas</dd>
+
+			<dt><kbd>Ctrl</kbd> + <kbd>↑</kbd> / <kbd>↓</kbd></dt>
+			<dd>Mover la tarea, con el foco puesto en su asa</dd>
+
+			<dt><kbd>Intro</kbd></dt>
+			<dd>Confirmar la edición de una tarea</dd>
+
+			<dt><kbd>Mayús</kbd> + <kbd>Intro</kbd></dt>
+			<dd>Salto de línea dentro de una tarea</dd>
+
+			<dt><kbd>Esc</kbd></dt>
+			<dd>Cancelar la edición o cerrar esta ventana</dd>
+
+			<dt><kbd>?</kbd></dt>
+			<dd>Abrir esta ayuda</dd>
+		</dl>
+
+		<form method="dialog" class="atajos__pie">
+			<button class="boton" type="submit">Cerrar</button>
+		</form>
+	</dialog>
 
 	<!--
 		Selector de fondo. Es un <dialog> nativo: trae el foco atrapado, el cierre con Escape, el

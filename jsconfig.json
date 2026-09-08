@@ -1,0 +1,45 @@
+{
+	"//": [
+		"Comprobación de tipos del frontend SIN paso de compilación.",
+		"",
+		"Los archivos que sirve Spring son exactamente estos, sin transpilar ni empaquetar. tsc no",
+		"genera nada (noEmit): solo lee los tipos declarados en JSDoc y avisa de las incoherencias,",
+		"igual que lo haría TypeScript, pero sin cambiar ni un byte de lo que llega al navegador.",
+		"",
+		"  npm run tipos     comprueba una vez (es lo que ejecuta la integración continua)",
+		"  npm run tipos:ver  se queda vigilando mientras programas",
+		"",
+		"VS Code lo aplica solo al abrir el proyecto, así que los errores salen subrayados al escribir.",
+		"",
+		"maxNodeModuleJsDepth va a 0 porque, con checkJs activo, tsc entra a comprobar el JavaScript de",
+		"dentro de node_modules y falla por dependencias que no son nuestras. Y node_modules se repite",
+		"en exclude porque declararlo anula el valor por defecto, que ya lo traía."
+	],
+	"compilerOptions": {
+		"target": "ES2022",
+		"module": "ES2022",
+		"moduleResolution": "bundler",
+		"lib": ["ES2022", "DOM", "DOM.Iterable"],
+
+		"checkJs": true,
+		"noEmit": true,
+
+		"strict": true,
+		"noImplicitAny": true,
+		"strictNullChecks": true,
+		"noUnusedLocals": true,
+		"noUnusedParameters": true,
+		"noFallthroughCasesInSwitch": true,
+		"noImplicitReturns": true,
+		"forceConsistentCasingInFileNames": true,
+
+		"skipLibCheck": true,
+
+		"maxNodeModuleJsDepth": 0
+	},
+	"include": ["src/main/resources/static/js/**/*.js", "src/test/js/**/*.js"],
+	"exclude": [
+		"node_modules",
+		"src/main/resources/static/js/vendor/**"
+	]
+}

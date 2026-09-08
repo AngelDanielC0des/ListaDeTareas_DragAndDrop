@@ -1,0 +1,16 @@
+# Lo que no debe entrar en el contexto de construcción. Sin esto, Docker copia el target/ entero y
+# el .git al demonio en cada build, que es lento y además invalida capas sin motivo.
+target/
+datos/
+.git/
+.github/
+.mvn/
+mvnw
+mvnw.cmd
+docs/
+*.md
+.gitignore
+.vscode/
+.idea/
+*.iml
+node_modules/

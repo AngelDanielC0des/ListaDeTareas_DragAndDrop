@@ -22,13 +22,33 @@ const CLAVE_TEMA = 'tareas.tema';
 /** El valor por defecto: seguir lo que diga el sistema operativo. */
 const TEMA_SISTEMA = 'sistema';
 
+/** @typedef {'claro' | 'oscuro' | 'sistema'} Tema */
+
+/** @type {Tema[]} */
 const TEMAS_VALIDOS = ['claro', 'oscuro', TEMA_SISTEMA];
 
+/**
+ * Si una cadena cualquiera es uno de los temas que entendemos.
+ *
+ * Va aparte y devolviendo un predicado con tipo para que, dentro del `if`, el valor deje de ser «una
+ * cadena o null» y pase a ser un tema de verdad. Es la comprobación que ya se hacía, solo que ahora
+ * el comprobador de tipos también la entiende.
+ *
+ * @param {string | null} valor
+ * @returns {valor is Tema}
+ */
+function esTemaValido(valor) {
+	const resultado = valor !== null && TEMAS_VALIDOS.includes(/** @type {Tema} */ (valor));
+	return resultado;
+}
+
+/** @returns {Tema} */
 export function leerTema() {
+	/** @type {Tema} */
 	let resultado = TEMA_SISTEMA;
 	try {
 		const guardado = localStorage.getItem(CLAVE_TEMA);
-		if (TEMAS_VALIDOS.includes(guardado)) {
+		if (esTemaValido(guardado)) {
 			resultado = guardado;
 		}
 	}
@@ -38,8 +58,9 @@ export function leerTema() {
 	return resultado;
 }
 
+/** @param {string} tema */
 export function guardarTema(tema) {
-	if (!TEMAS_VALIDOS.includes(tema)) {
+	if (!esTemaValido(tema)) {
 		return;
 	}
 	try {

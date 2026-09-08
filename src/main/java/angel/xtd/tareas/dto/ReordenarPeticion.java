@@ -2,6 +2,7 @@ package angel.xtd.tareas.dto;
 
 import java.util.List;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotEmpty;
 
 /**
@@ -13,6 +14,7 @@ import jakarta.validation.constraints.NotEmpty;
  */
 public record ReordenarPeticion(
 
+		@Schema(description = "Todos los ids que existen, en el orden deseado", example = "[3, 1, 2]")
 		@NotEmpty(message = "Hay que indicar el orden de las tareas")
 		List<Integer> ids) {
 

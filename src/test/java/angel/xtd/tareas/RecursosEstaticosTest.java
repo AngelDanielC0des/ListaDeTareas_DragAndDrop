@@ -16,9 +16,11 @@ import org.junit.jupiter.api.Test;
 /**
  * Comprueba sobre el HTML que siguen ahí los elementos que el JavaScript da por hechos.
  *
- * <p>El frontend no tiene pruebas propias —montar un entorno de JavaScript para este proyecto sería
- * desproporcionado—, así que estas hacen de red mínima: si alguien quita uno de estos elementos al
- * retocar la maquetación, el módulo que lo busca fallaría en silencio en el navegador y aquí salta.
+ * <p>El frontend tiene sus propias pruebas en {@code src/test/js/}, que cargan este mismo HTML en
+ * jsdom y comprueban el comportamiento de verdad. Estas se quedan igualmente por dos motivos: hacen
+ * que un {@code ./mvnw verify} a secas detecte la deriva entre el HTML y el JavaScript sin necesitar
+ * Node instalado, y cubren cosas que desde el navegador no se ven, como que el script del tema esté
+ * antes de la hoja de estilos o que existan los archivos de imagen.
  */
 class RecursosEstaticosTest {
 
@@ -194,6 +196,22 @@ class RecursosEstaticosTest {
 		assertThat(leerRecurso("static/js/preferencias.js"))
 			.as("preferencias.js debe usar la misma clave «%s» que el HTML", clave.group(1))
 			.contains("'" + clave.group(1) + "'");
+	}
+
+	/**
+	 * {@code vista.js} exige estos dos elementos al cargar —{@code exigirElemento} lanza si faltan—,
+	 * así que quitarlos del HTML dejaría la aplicación sin arrancar en el navegador. Aquí salta antes.
+	 */
+	@Test
+	@DisplayName("están el estado vacío y la plantilla de la tarjeta que el JavaScript exige")
+	void tieneEstadoVacioYPlantilla() throws IOException {
+		String html = leerIndex();
+
+		assertThat(html).as("vista.js busca #lista-vacia para enseñarlo cuando no hay tareas")
+			.contains("id=\"lista-vacia\"");
+		assertThat(html).as("las tarjetas se clonan de esta plantilla, no se construyen con cadenas")
+			.contains("id=\"plantilla-tarea\"")
+			.contains("class=\"tarea__accion-texto\"");
 	}
 
 }

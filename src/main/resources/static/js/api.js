@@ -9,6 +9,22 @@
 const RUTA_BASE = '/tarea';
 
 /**
+ * El cuerpo de error que devuelve el servidor, en formato ProblemDetail (RFC 9457).
+ *
+ * @typedef {object} ProblemDetail
+ * @property {string} [title]
+ * @property {string} [detail]
+ * @property {Record<string, string>} [errores] mapa campo -> mensaje en los errores de validación
+ */
+
+/**
+ * Opciones de una petición. Es `RequestInit` con un añadido: `cuerpo` es el objeto que se va a
+ * serializar, y `realizarPeticion` lo convierte en `body` y pone la cabecera correspondiente.
+ *
+ * @typedef {RequestInit & {cuerpo?: unknown}} OpcionesDePeticion
+ */
+
+/**
  * Mensajes de respaldo, en español, para cuando el servidor responde un error sin cuerpo que lo
  * explique. Solo se usan si falta el `detail`: cuando el servidor manda uno propio, gana el suyo.
  */
@@ -24,6 +40,13 @@ const MENSAJES_POR_ESTADO = {
 /** Error de la API con el ProblemDetail ya interpretado. */
 export class ErrorApi extends Error {
 
+	/**
+	 * @param {number} estado código HTTP, o 0 si la petición ni siquiera salió
+	 * @param {string} [titulo]
+	 * @param {string} [detalle]
+	 * @param {Record<string, string>} [errores]
+	 * @param {unknown} [causa]
+	 */
 	constructor(estado, titulo, detalle, errores, causa) {
 		// La causa se encadena en lugar de descartarse: sin ella, un fallo de red (CORS, DNS, un
 		// certificado inválido) se pierde entero y en la consola solo queda «Sin conexión».
@@ -50,13 +73,16 @@ export class ErrorApi extends Error {
  *
  * Lanza ErrorApi tanto si el servidor responde con un código de error como si la red falla, para
  * que quien llama tenga un único tipo de fallo del que preocuparse.
+ *
+ * @param {string} ruta
+ * @param {OpcionesDePeticion} [opciones]
+ * @returns {Promise<any>} el cuerpo ya interpretado, o null si la respuesta no traía ninguno
  */
 async function realizarPeticion(ruta, opciones = {}) {
-	const configuracion = { ...opciones };
-	if (configuracion.cuerpo !== undefined) {
+	const { cuerpo, ...configuracion } = opciones;
+	if (cuerpo !== undefined) {
 		configuracion.headers = { 'Content-Type': 'application/json', ...(configuracion.headers || {}) };
-		configuracion.body = JSON.stringify(configuracion.cuerpo);
-		delete configuracion.cuerpo;
+		configuracion.body = JSON.stringify(cuerpo);
 	}
 
 	let respuesta;
@@ -81,7 +107,12 @@ async function realizarPeticion(ruta, opciones = {}) {
 	return resultado;
 }
 
+/**
+ * @param {Response} respuesta
+ * @returns {Promise<ErrorApi>}
+ */
 async function interpretarError(respuesta) {
+	/** @type {ProblemDetail} */
 	let problema = {};
 	try {
 		problema = await respuesta.json();
@@ -93,7 +124,7 @@ async function interpretarError(respuesta) {
 	const resultado = new ErrorApi(
 		respuesta.status,
 		problema.title || 'Error',
-		problema.detail || MENSAJES_POR_ESTADO[respuesta.status]
+		problema.detail || MENSAJES_POR_ESTADO[/** @type {keyof typeof MENSAJES_POR_ESTADO} */ (respuesta.status)]
 			|| `El servidor ha respondido ${respuesta.status}.`,
 		problema.errores);
 	return resultado;
@@ -104,21 +135,32 @@ export function listarTareas() {
 	return resultado;
 }
 
+/** @param {string} texto */
 export function crearTarea(texto) {
 	const resultado = realizarPeticion(RUTA_BASE, { method: 'POST', cuerpo: { texto } });
 	return resultado;
 }
 
+/**
+ * @param {number} id
+ * @param {string} texto
+ * @param {boolean} completada
+ */
 export function actualizarTarea(id, texto, completada) {
 	const resultado = realizarPeticion(`${RUTA_BASE}/${id}`, { method: 'PUT', cuerpo: { texto, completada } });
 	return resultado;
 }
 
+/**
+ * @param {number} id
+ * @param {boolean} completada
+ */
 export function cambiarCompletada(id, completada) {
 	const resultado = realizarPeticion(`${RUTA_BASE}/${id}/completada`, { method: 'PATCH', cuerpo: { completada } });
 	return resultado;
 }
 
+/** @param {number} id */
 export function eliminarTarea(id) {
 	const resultado = realizarPeticion(`${RUTA_BASE}/${id}`, { method: 'DELETE' });
 	return resultado;
@@ -135,6 +177,9 @@ export function eliminarTarea(id) {
  * que rechaza. Un `try/catch` alrededor no vería nada y un fallo de red dejaría una promesa
  * rechazada sin gestionar, que además despertaría al manejador de `unhandledrejection` para
  * intentar pintar un error en una página que ya se está yendo.
+ *
+ * @param {string} ruta
+ * @param {OpcionesDePeticion} opciones
  */
 function enviarAlSalir(ruta, opciones) {
 	const configuracion = { ...opciones, keepalive: true };
@@ -146,21 +191,28 @@ function enviarAlSalir(ruta, opciones) {
 	fetch(ruta, configuracion).catch(() => {});
 }
 
-/** Borra una tarea cuando la pestaña se está cerrando. */
+/** Borra una tarea cuando la pestaña se está cerrando. @param {number} id */
 export function eliminarTareaAlSalir(id) {
 	enviarAlSalir(`${RUTA_BASE}/${id}`, { method: 'DELETE' });
 }
 
-/** Manda la edición que el temporizador del guardado automático no llegó a enviar. */
+/**
+ * Manda la edición que el temporizador del guardado automático no llegó a enviar.
+ *
+ * @param {number} id
+ * @param {string} texto
+ * @param {boolean} completada
+ */
 export function guardarTareaAlSalir(id, texto, completada) {
 	enviarAlSalir(`${RUTA_BASE}/${id}`, { method: 'PUT', cuerpo: { texto, completada } });
 }
 
-/** Manda el orden que el temporizador del guardado automático no llegó a enviar. */
+/** Manda el orden que el temporizador no llegó a enviar. @param {number[]} ids */
 export function reordenarAlSalir(ids) {
 	enviarAlSalir(`${RUTA_BASE}/orden`, { method: 'PUT', cuerpo: { ids } });
 }
 
+/** @param {number[]} ids */
 export function reordenarTareas(ids) {
 	const resultado = realizarPeticion(`${RUTA_BASE}/orden`, { method: 'PUT', cuerpo: { ids } });
 	return resultado;
@@ -177,7 +229,12 @@ export function consultarFondos() {
 	return resultado;
 }
 
-/** Devuelve el mapa completo ya actualizado, para no tener que recomponerlo en el cliente. */
+/**
+ * Devuelve el mapa completo ya actualizado, para no tener que recomponerlo en el cliente.
+ *
+ * @param {number} id
+ * @param {string} fondo
+ */
 export function cambiarFondo(id, fondo) {
 	const resultado = realizarPeticion(`${RUTA_BASE}/${id}/fondo`, { method: 'PUT', cuerpo: { fondo } });
 	return resultado;

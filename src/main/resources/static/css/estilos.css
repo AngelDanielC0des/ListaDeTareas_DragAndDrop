@@ -20,7 +20,12 @@
 	--color-borde: #dde1e7;
 	--color-acento: #2563eb;
 	--color-acento-texto: #ffffff;
-	--color-peligro: #d92d20;
+	/*
+	 * Medido: 4.68:1 sobre el fondo y 5.06:1 sobre una tarjeta. Se usa como color de TEXTO —el aviso
+	 * de error y el botón de borrar—, así que el mínimo que aplica es el 4.5:1 de la AA. El rojo
+	 * anterior (#d92d20) se quedaba en 4.47:1: fallaba por tres centésimas.
+	 */
+	--color-peligro: #d42a1d;
 	--color-exito: #067647;
 
 	--espacio-1: 0.25rem;
@@ -452,10 +457,52 @@ body {
 	background-color: var(--color-superficie-suave);
 }
 
+/*
+ * Estado vacío. Es lo primero que ve alguien que abre la aplicación por primera vez, así que en vez
+ * de una línea de texto suelta lleva un dibujo y una instrucción concreta de qué hacer a
+ * continuación. El dibujo usa `currentColor`, así que se adapta solo a los dos temas.
+ */
 .lista-vacia {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: var(--espacio-2);
 	margin: var(--espacio-6) 0;
+	padding: var(--espacio-6) var(--espacio-4);
 	color: var(--color-texto-suave);
 	text-align: center;
+}
+
+.lista-vacia__dibujo {
+	width: 4rem;
+	height: 4rem;
+	fill: none;
+	stroke: currentColor;
+	stroke-width: 2;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+	opacity: 0.4;
+}
+
+.lista-vacia__marca {
+	fill: var(--color-fondo);
+}
+
+.lista-vacia__tic {
+	stroke-width: 2.5;
+}
+
+.lista-vacia__titulo {
+	margin: 0;
+	color: var(--color-texto);
+	font-size: 1.05rem;
+	font-weight: 600;
+}
+
+.lista-vacia__ayuda {
+	margin: 0;
+	max-width: 26rem;
+	font-size: 0.9rem;
 }
 
 /* ------------------------------------------------------------------ Lista */
@@ -595,6 +642,7 @@ body {
 .tarea--completada .tarea__texto {
 	color: var(--color-texto-suave);
 	text-decoration: line-through;
+	text-decoration-color: currentColor;
 }
 
 .tarea__editor {
@@ -881,4 +929,297 @@ kbd {
 		animation-iteration-count: 1;
 		transition-duration: 0.01ms;
 	}
+}
+
+
+/* ------------------------------------------------------- Transiciones de vista */
+
+/*
+ * Animación de las tarjetas al añadir, borrar, deshacer y reordenar.
+ *
+ * El navegador empareja cada tarjeta con la misma de antes por su `view-transition-name`, que
+ * `vista.js` pone como `tarea-<id>`, y anima el paso de una posición a otra. Lo único que hay que
+ * declarar aquí es qué hacer con las que entran y con las que salen.
+ */
+@keyframes tarjeta-entra {
+	from {
+		opacity: 0;
+		transform: scale(0.96) translateY(-0.5rem);
+	}
+}
+
+@keyframes tarjeta-sale {
+	to {
+		opacity: 0;
+		transform: scale(0.96);
+	}
+}
+
+/*
+ * El comodín alcanza a todas las tarjetas de una vez. Hace falta porque cada una lleva un nombre
+ * distinto (`tarea-1`, `tarea-2`…) —tienen que ser únicos para que el navegador las empareje— y no
+ * hay forma de nombrarlas una a una desde aquí.
+ *
+ * `:only-child` distingue los dos casos: cuando una tarjeta solo tiene captura nueva es que acaba de
+ * aparecer, y cuando solo tiene la vieja es que se ha ido. Las que están en las dos se han movido, y
+ * de esas se encarga el navegador sin que haya que decirle nada.
+ */
+::view-transition-new(*):only-child {
+	animation: tarjeta-entra 220ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+::view-transition-old(*):only-child {
+	animation: tarjeta-sale 180ms cubic-bezier(0.4, 0, 1, 1);
+}
+
+/*
+ * Va DESPUÉS del comodín a propósito: los dos selectores pesan lo mismo, así que gana el último y
+ * la página entera se queda sin el fundido que el navegador hace por defecto. Solo se anima lo que
+ * de verdad cambia, que son las tarjetas.
+ */
+::view-transition-old(root),
+::view-transition-new(root) {
+	animation: none;
+}
+
+/* --------------------------------------------------- Marcar como completada */
+
+/*
+ * El tachado aparece progresivamente en vez de de golpe, como confirmación de que la pulsación ha
+ * surtido efecto.
+ *
+ * Se anima el COLOR de la línea, no una línea propia dibujada con un pseudo-elemento. El primer
+ * intento fue eso último y estaba mal por dos motivos: encima del `text-decoration: line-through`
+ * que la tarjeta ya tenía habría quedado una raya doble, y al recortarse el texto a dos líneas una
+ * barra de ancho fijo solo habría cruzado la primera. `text-decoration-color` sí es animable y tacha
+ * todas las líneas, que es lo que hay que tachar.
+ */
+.tarea__texto {
+	text-decoration-color: transparent;
+	transition: text-decoration-color 220ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+	/*
+	 * Con menos movimiento no se anima nada de lo anterior. `vista.js` además ni siquiera pide la
+	 * transición, pero esto cubre el caso de que alguien cambie la preferencia con la página abierta.
+	 */
+	::view-transition-group(*),
+	::view-transition-old(*),
+	::view-transition-new(*) {
+		animation: none !important;
+	}
+
+	.tarea__texto {
+		transition: none;
+	}
+}
+
+/* ------------------------------------------------------------ Filtro y búsqueda */
+
+/*
+ * Barra de filtros. En móvil los dos grupos se apilan y a partir de 600 px caben en una fila, con la
+ * búsqueda ocupando el espacio sobrante.
+ */
+.filtros {
+	display: flex;
+	flex-direction: column;
+	gap: var(--espacio-2);
+	margin-bottom: var(--espacio-4);
+}
+
+.filtros__busqueda {
+	position: relative;
+	display: flex;
+	align-items: center;
+}
+
+/*
+ * La lupa se coloca dentro del campo y no responde al puntero: sin `pointer-events: none`, pulsar
+ * justo encima del dibujo no enfocaría el campo que hay debajo.
+ */
+.filtros__lupa {
+	position: absolute;
+	left: var(--espacio-3);
+	color: var(--color-texto-suave);
+	pointer-events: none;
+}
+
+.filtros__campo {
+	width: 100%;
+	/* A la izquierda cabe la lupa: su margen más su ancho (1.125rem) más un respiro. */
+	padding: var(--espacio-2) var(--espacio-3);
+	padding-left: calc(var(--espacio-3) + 1.125rem + var(--espacio-2));
+	border: 1px solid var(--color-borde);
+	border-radius: var(--radio-pequeno);
+	background-color: var(--color-superficie);
+	color: var(--color-texto);
+	font: inherit;
+	font-size: 0.9rem;
+	transition: border-color 120ms ease;
+}
+
+.filtros__campo:focus-visible {
+	border-color: var(--color-acento);
+}
+
+/* El aspa que Chrome pone en los type="search" desentona con el resto; se quita. */
+.filtros__campo::-webkit-search-cancel-button {
+	appearance: none;
+}
+
+.filtros__estados {
+	display: flex;
+	gap: var(--espacio-1);
+	margin: 0;
+	padding: 0;
+	border: 0;
+}
+
+.filtros__opcion {
+	flex: 1 1 0;
+}
+
+/* El radio se oculta pero sigue estando: es él quien recibe el foco y quien maneja las flechas. */
+.filtros__radio {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	opacity: 0;
+}
+
+.filtros__texto {
+	display: block;
+	padding: var(--espacio-2);
+	border: 1px solid var(--color-borde);
+	border-radius: var(--radio-pequeno);
+	color: var(--color-texto-suave);
+	font-size: 0.8rem;
+	text-align: center;
+	cursor: pointer;
+	transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.filtros__texto:hover {
+	border-color: var(--color-texto-suave);
+	color: var(--color-texto);
+}
+
+.filtros__radio:checked + .filtros__texto {
+	border-color: var(--color-acento);
+	background-color: var(--color-acento);
+	color: var(--color-superficie);
+}
+
+/* El foco se pinta sobre la etiqueta porque el radio real es invisible. */
+.filtros__radio:focus-visible + .filtros__texto {
+	outline: 2px solid var(--color-acento);
+	outline-offset: 2px;
+}
+
+.aviso-arrastre,
+.sin-resultados {
+	margin: 0 0 var(--espacio-4);
+	padding: var(--espacio-3);
+	border-radius: var(--radio-pequeno);
+	background-color: var(--color-superficie-suave);
+	color: var(--color-texto-suave);
+	font-size: 0.85rem;
+	text-align: center;
+}
+
+/* Mientras el arrastre está desactivado, el asa deja de invitar a arrastrar. */
+.lista--sin-arrastre .tarea__asa {
+	opacity: 0.35;
+	cursor: default;
+}
+
+@media (min-width: 600px) {
+
+	.filtros {
+		flex-direction: row;
+		align-items: center;
+	}
+
+	.filtros__busqueda {
+		flex: 1 1 auto;
+	}
+
+	.filtros__estados {
+		flex: none;
+	}
+
+	.filtros__texto {
+		padding: var(--espacio-2) var(--espacio-3);
+	}
+}
+
+
+/* --------------------------------------------------------- Ayuda de atajos */
+
+/*
+ * Comparte el aspecto del selector de fondo: los dos son <dialog> nativos y conviene que se
+ * reconozcan como la misma clase de ventana.
+ */
+.atajos {
+	max-width: 30rem;
+	padding: var(--espacio-5);
+	border: 1px solid var(--color-borde);
+	border-radius: var(--radio);
+	background-color: var(--color-superficie);
+	color: var(--color-texto);
+}
+
+.atajos::backdrop {
+	background-color: rgba(0, 0, 0, 0.5);
+}
+
+.atajos__titulo {
+	margin: 0 0 var(--espacio-4);
+	font-size: 1.05rem;
+}
+
+/*
+ * Rejilla de dos columnas para las parejas tecla/descripción. Se usa <dl> porque es exactamente lo
+ * que es —una lista de términos y sus definiciones— y así el emparejamiento queda en la semántica y
+ * no solo en la maquetación.
+ */
+.atajos__lista {
+	display: grid;
+	grid-template-columns: auto 1fr;
+	gap: var(--espacio-2) var(--espacio-4);
+	align-items: baseline;
+	margin: 0 0 var(--espacio-5);
+}
+
+.atajos__lista dt {
+	white-space: nowrap;
+}
+
+.atajos__lista dd {
+	margin: 0;
+	color: var(--color-texto-suave);
+	font-size: 0.9rem;
+}
+
+.atajos__pie {
+	display: flex;
+	justify-content: flex-end;
+	margin: 0;
+}
+
+/* Un botón que se lee como un enlace: abre ayuda, no ejecuta una acción sobre las tareas. */
+.pie__enlace {
+	padding: 0;
+	border: 0;
+	background: none;
+	color: var(--color-acento);
+	font: inherit;
+	text-decoration: underline;
+	cursor: pointer;
+}
+
+.pie__enlace:hover {
+	color: var(--color-texto);
 }
