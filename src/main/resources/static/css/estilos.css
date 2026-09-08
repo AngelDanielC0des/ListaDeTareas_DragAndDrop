@@ -5,7 +5,7 @@
  *   - Especificidad plana: una sola clase por selector. Sin selectores de id, sin anidamiento,
  *     sin !important. Así cualquier regla posterior puede sobrescribir a otra sin pelearse.
  *   - Nomenclatura BEM: .bloque, .bloque__elemento, .bloque--modificador.
- *   - Rejilla responsiva con auto-fill: sin breakpoints que mantener.
+ *   - Mobile first: la base son 2 columnas y los @media solo añaden.
  *   - Todo color, espacio y radio sale de una variable de :root.
  */
 
@@ -41,8 +41,18 @@
 	--tipografia: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
+/*
+ * Tema en tres estados: claro, oscuro y «lo que diga el sistema».
+ *
+ * La elección explícita del usuario llega como data-tema en <html> y gana sobre la del sistema; el
+ * :not() es lo que permite que elegir «claro» ignore un sistema en oscuro. Si no hay elección, el
+ * atributo no existe y manda el @media.
+ *
+ * La paleta oscura está escrita dos veces porque CSS no tiene forma de compartir un bloque de
+ * declaraciones entre dos selectores, y repetir trece líneas se lee mejor que cualquier truco.
+ */
 @media (prefers-color-scheme: dark) {
-	:root {
+	:root:not([data-tema="claro"]) {
 		--color-fondo: #14171c;
 		--color-superficie: #1d2127;
 		--color-superficie-suave: #262b33;
@@ -56,6 +66,21 @@
 		--sombra: 0 1px 2px rgba(0, 0, 0, 0.4);
 		--sombra-elevada: 0 8px 24px rgba(0, 0, 0, 0.55);
 	}
+}
+
+:root[data-tema="oscuro"] {
+		--color-fondo: #14171c;
+		--color-superficie: #1d2127;
+		--color-superficie-suave: #262b33;
+		--color-texto: #e8eaed;
+		--color-texto-suave: #9aa4b2;
+		--color-borde: #333942;
+		--color-acento: #4d84ff;
+		--color-acento-texto: #0b1020;
+		--color-peligro: #ff6b5e;
+		--color-exito: #4ade80;
+		--sombra: 0 1px 2px rgba(0, 0, 0, 0.4);
+		--sombra-elevada: 0 8px 24px rgba(0, 0, 0, 0.55);
 }
 
 /* ------------------------------------------------------------------- Base */
@@ -79,6 +104,65 @@ body {
 :focus-visible {
 	outline: 2px solid var(--color-acento);
 	outline-offset: 2px;
+}
+
+/*
+ * El atributo `hidden` lo pisa CUALQUIER `display` declarado por el autor, porque el
+ * `[hidden] { display: none }` del navegador es una regla suya y las del autor mandan sobre las
+ * suyas. Sin esta regla, `.tarea__texto` (que lleva `-webkit-box` para el recorte a dos líneas)
+ * seguiría viéndose al editar, junto al textarea; y el aviso de deshacer (`display: flex`) estaría
+ * siempre visible.
+ *
+ * Es la única excepción al «sin !important» del proyecto, y es la excepción de manual: hace falta
+ * para ganar a `.tarea--desplegada .tarea__texto`, que tiene más especificidad.
+ */
+[hidden] {
+	display: none !important;
+}
+
+/*
+ * Enlace de salto: invisible hasta que recibe el foco. Sin él, quien navega con el tabulador tiene
+ * que pasar por el titular y los tres radios del tema antes de llegar a las tareas.
+ */
+.salto-al-contenido {
+	position: absolute;
+	top: var(--espacio-2);
+	left: var(--espacio-2);
+	z-index: 10;
+	padding: var(--espacio-2) var(--espacio-3);
+	border-radius: var(--radio-pequeno);
+	background-color: var(--color-acento);
+	color: var(--color-acento-texto);
+	font-size: 0.875rem;
+	font-weight: 600;
+	text-decoration: none;
+	transform: translateY(-200%);
+	transition: transform 120ms ease;
+}
+
+.salto-al-contenido:focus-visible {
+	transform: translateY(0);
+}
+
+/*
+ * Los iconos van en SVG en línea y con `currentColor`, así que cambian de color con el tema sin
+ * ninguna regla extra. Todos llevan aria-hidden: el nombre del botón lo pone su texto o su
+ * aria-label, nunca el dibujo.
+ */
+.icono {
+	width: 1.125rem;
+	height: 1.125rem;
+	flex: none;
+	fill: none;
+	stroke: currentColor;
+	stroke-width: 2;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+}
+
+.icono circle {
+	fill: currentColor;
+	stroke: none;
 }
 
 .visualmente-oculto {
@@ -106,6 +190,14 @@ body {
 	padding: var(--espacio-4) var(--espacio-3);
 }
 
+.cabecera__fila {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--espacio-3);
+}
+
 .cabecera__titulo {
 	margin: 0;
 	font-size: 1.375rem;
@@ -113,9 +205,92 @@ body {
 }
 
 .cabecera__resumen {
-	margin: var(--espacio-1) 0 0;
+	margin: var(--espacio-2) 0 0;
 	color: var(--color-texto-suave);
 	font-size: 0.875rem;
+}
+
+/*
+ * <progress> necesita pseudoelementos distintos por motor y no acepta los de color directamente,
+ * de ahí las tres reglas: appearance para quitar el aspecto nativo, y una por navegador.
+ */
+.cabecera__progreso {
+	appearance: none;
+	display: block;
+	width: 100%;
+	height: 0.25rem;
+	margin-top: var(--espacio-2);
+	border: 0;
+	border-radius: 999px;
+	background-color: var(--color-superficie-suave);
+	overflow: hidden;
+}
+
+.cabecera__progreso::-webkit-progress-bar {
+	background-color: var(--color-superficie-suave);
+}
+
+.cabecera__progreso::-webkit-progress-value {
+	background-color: var(--color-exito);
+	transition: width 200ms ease;
+}
+
+.cabecera__progreso::-moz-progress-bar {
+	background-color: var(--color-exito);
+}
+
+/* ------------------------------------------------------------ Tema */
+
+.tema {
+	display: flex;
+	gap: 0;
+	margin: 0;
+	padding: 0;
+	border: 1px solid var(--color-borde);
+	border-radius: var(--radio-pequeno);
+	overflow: hidden;
+}
+
+.tema__opcion {
+	display: inline-flex;
+}
+
+/*
+ * El radio se oculta pero NO con display:none, que lo sacaría del orden de tabulación: sigue
+ * siendo el que recibe el foco y el que se mueve con las flechas; lo que se ve es el <span>.
+ */
+.tema__radio {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	opacity: 0;
+	pointer-events: none;
+}
+
+.tema__texto {
+	display: inline-block;
+	padding: var(--espacio-1) var(--espacio-3);
+	color: var(--color-texto-suave);
+	font-size: 0.75rem;
+	font-weight: 600;
+	cursor: pointer;
+	transition: background-color 120ms ease, color 120ms ease;
+}
+
+.tema__texto:hover {
+	background-color: var(--color-superficie-suave);
+	color: var(--color-texto);
+}
+
+.tema__radio:checked + .tema__texto {
+	background-color: var(--color-acento);
+	color: var(--color-acento-texto);
+}
+
+/* El foco lo recibe el radio, que es invisible, así que se dibuja sobre el texto. */
+.tema__radio:focus-visible + .tema__texto {
+	outline: 2px solid var(--color-acento);
+	outline-offset: -2px;
 }
 
 /* -------------------------------------------------------------- Contenido */
@@ -157,6 +332,18 @@ body {
 	font-size: 1rem;
 }
 
+.formulario__contador {
+	margin: var(--espacio-2) 0 0;
+	color: var(--color-texto-suave);
+	font-size: 0.75rem;
+	font-variant-numeric: tabular-nums;
+}
+
+.formulario__contador--limite {
+	color: var(--color-peligro);
+	font-weight: 600;
+}
+
 /* ----------------------------------------------------------------- Botones */
 
 .boton {
@@ -170,12 +357,44 @@ body {
 	font-size: 0.9375rem;
 	font-weight: 600;
 	cursor: pointer;
+	transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.boton:hover {
+	border-color: var(--color-texto-suave);
+	background-color: var(--color-superficie-suave);
+}
+
+.boton--icono {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: var(--espacio-2);
 }
 
 .boton--principal {
 	border-color: transparent;
 	background-color: var(--color-acento);
 	color: var(--color-acento-texto);
+}
+
+.boton--principal:hover {
+	border-color: transparent;
+	filter: brightness(1.1);
+}
+
+/*
+ * Sin esto, bloquear el botón mientras va la petición no se notaría: `disabled` cambia el
+ * comportamiento pero no la apariencia, y el usuario no entendería por qué no responde.
+ */
+.boton:disabled,
+.boton:disabled:hover,
+.tarea__accion:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+	filter: none;
+	border-color: var(--color-borde);
+	background-color: var(--color-superficie);
 }
 
 /* ------------------------------------------------------------------ Aviso */
@@ -190,6 +409,49 @@ body {
 	font-size: 0.875rem;
 }
 
+/* ------------------------------------------------- Aviso de deshacer */
+
+.aviso-deshacer {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--espacio-3);
+	margin: 0 0 var(--espacio-4);
+	padding: var(--espacio-2) var(--espacio-3);
+	border: 1px solid var(--color-borde);
+	border-radius: var(--radio-pequeno);
+	background-color: var(--color-superficie);
+	box-shadow: var(--sombra);
+	font-size: 0.875rem;
+}
+
+.aviso-deshacer__texto {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.aviso-deshacer__boton {
+	flex: none;
+	min-height: 2rem;
+	padding: var(--espacio-1) var(--espacio-3);
+	border: 1px solid var(--color-borde);
+	border-radius: var(--radio-pequeno);
+	background-color: transparent;
+	color: var(--color-acento);
+	font: inherit;
+	font-size: 0.8125rem;
+	font-weight: 600;
+	cursor: pointer;
+	transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.aviso-deshacer__boton:hover {
+	border-color: var(--color-acento);
+	background-color: var(--color-superficie-suave);
+}
+
 .lista-vacia {
 	margin: var(--espacio-6) 0;
 	color: var(--color-texto-suave);
@@ -199,21 +461,33 @@ body {
 /* ------------------------------------------------------------------ Lista */
 
 /*
- * Una sola declaración en lugar de breakpoints: `auto-fill` mete tantas columnas de al menos 260px
- * como quepan, así que la rejilla es responsiva sola. El `minmax(0, …)` evita que una palabra muy
- * larga ensanche la columna y desborde la página.
+ * `minmax(0, 1fr)` en lugar de `1fr`: sin ese mínimo de 0 una palabra muy larga ensancharía la
+ * columna y desbordaría la página horizontalmente.
  *
- * `align-items: start` hace que cada tarjeta tome su altura natural en vez de estirarse a la más
- * alta de su fila.
+ * `align-items: start` hace que cada tarjeta tome su altura natural: una tarea de una línea ocupa
+ * poco y una de dos líneas ocupa más, en vez de estirarse todas a la más alta de su fila.
  */
 .lista {
 	display: grid;
-	grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+	grid-template-columns: repeat(2, minmax(0, 1fr));
 	align-items: start;
 	gap: var(--espacio-3);
 	margin: 0;
 	padding: 0;
 	list-style: none;
+}
+
+@media (min-width: 600px) {
+	.lista {
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+	}
+}
+
+@media (min-width: 1024px) {
+	.lista {
+		grid-template-columns: repeat(4, minmax(0, 1fr));
+		gap: var(--espacio-4);
+	}
 }
 
 /* ------------------------------------------------------------------ Tarea */
@@ -227,16 +501,33 @@ body {
 	border-radius: var(--radio);
 	background-color: var(--color-superficie);
 	box-shadow: var(--sombra);
+	border-left: 3px solid transparent;
+	transition: box-shadow 150ms ease, border-color 150ms ease, transform 150ms ease;
 }
 
+.tarea:hover {
+	box-shadow: var(--sombra-elevada);
+}
+
+/*
+ * Franja de color en el borde en lugar de bajar la opacidad, que es lo típico: atenuar la tarjeta
+ * entera estropearía el contraste del texto, que tal como está cumple el nivel AA.
+ */
 .tarea--completada {
 	background-color: var(--color-superficie-suave);
+	border-left-color: var(--color-exito);
 }
 
 .tarea__cabecera {
 	display: flex;
 	align-items: center;
+	justify-content: space-between;
 	gap: var(--espacio-2);
+}
+
+.tarea__control-completada {
+	display: inline-flex;
+	align-items: center;
 }
 
 .tarea__casilla {
@@ -247,10 +538,58 @@ body {
 	cursor: pointer;
 }
 
+/*
+ * `touch-action: none` es imprescindible: sin él, en móvil el navegador interpreta el gesto como
+ * scroll de la página y se lo roba a SortableJS antes de que empiece el arrastre.
+ */
+.tarea__asa {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 1.75rem;
+	height: 1.75rem;
+	padding: 0;
+	border: 0;
+	border-radius: var(--radio-pequeno);
+	background-color: transparent;
+	color: var(--color-texto-suave);
+	font-size: 1.125rem;
+	line-height: 1;
+	cursor: grab;
+	touch-action: none;
+	transition: background-color 120ms ease, color 120ms ease;
+}
+
+/* El asa es lo menos evidente de la tarjeta: el realce al pasar por encima ayuda a descubrirla. */
+.tarea__asa:hover {
+	background-color: var(--color-superficie-suave);
+	color: var(--color-texto);
+}
+
+.tarea__asa:active {
+	cursor: grabbing;
+}
+
+/*
+ * Recorte por LÍNEAS y no por caracteres: así se adapta solo al ancho real de la tarjeta y los
+ * puntos suspensivos los pone el navegador. El botón «Ver más» solo se muestra si el texto
+ * desborda de verdad, cosa que comprueba vista.js midiendo scrollHeight.
+ */
 .tarea__texto {
+	display: -webkit-box;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 2;
+	line-clamp: 2;
+	overflow: hidden;
 	margin: 0;
 	font-size: 0.875rem;
 	overflow-wrap: anywhere;
+}
+
+.tarea--desplegada .tarea__texto {
+	display: block;
+	-webkit-line-clamp: none;
+	line-clamp: none;
 }
 
 .tarea--completada .tarea__texto {
@@ -270,6 +609,18 @@ body {
 	resize: vertical;
 }
 
+.tarea__boton-desplegar {
+	align-self: flex-start;
+	padding: 0;
+	border: 0;
+	background: none;
+	color: var(--color-acento);
+	font: inherit;
+	font-size: 0.75rem;
+	font-weight: 600;
+	cursor: pointer;
+}
+
 .tarea__acciones {
 	display: flex;
 	gap: var(--espacio-2);
@@ -278,6 +629,10 @@ body {
 }
 
 .tarea__accion {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: var(--espacio-1);
 	flex: 1 1 0;
 	min-width: 0;
 	min-height: 2rem;
@@ -290,10 +645,229 @@ body {
 	font-size: 0.75rem;
 	font-weight: 600;
 	cursor: pointer;
+	transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.tarea__accion:hover {
+	border-color: var(--color-texto-suave);
+	background-color: var(--color-superficie-suave);
+	color: var(--color-texto);
 }
 
 .tarea__accion--peligro {
 	color: var(--color-peligro);
+}
+
+.tarea__accion--peligro:hover {
+	border-color: var(--color-peligro);
+	color: var(--color-peligro);
+}
+
+/* ------------------------------------------------- Fondo de la tarjeta */
+
+/*
+ * El fondo va en un pseudoelemento por DEBAJO del contenido, no en el `background` de la tarjeta.
+ *
+ * Es lo que permite bajarle la opacidad sin tocar la del texto: con `opacity` sobre la tarjeta
+ * entera se atenuaría también lo escrito y el contraste dejaría de cumplir AA. Así el color de
+ * superficie sigue debajo, la imagen se mezcla encima suavemente y el texto queda intacto.
+ *
+ * `isolation: isolate` crea un contexto de apilamiento propio para que el z-index negativo se quede
+ * dentro de la tarjeta y no se cuele por detrás del fondo de la página.
+ */
+.tarea--con-fondo {
+	position: relative;
+	isolation: isolate;
+}
+
+.tarea--con-fondo::before {
+	content: '';
+	position: absolute;
+	inset: 0;
+	z-index: -1;
+	border-radius: inherit;
+	background-position: center;
+	background-size: cover;
+	opacity: 0.2;
+}
+
+.tarea--fondo-ondas::before {
+	background-image: url("../img/ondas.svg");
+}
+
+.tarea--fondo-puntos::before {
+	background-image: url("../img/puntos.svg");
+}
+
+.tarea--fondo-lineas::before {
+	background-image: url("../img/lineas.svg");
+}
+
+.tarea--fondo-papel::before {
+	background-image: url("../img/papel.svg");
+}
+
+.tarea--fondo-aurora::before {
+	background-image: url("../img/aurora.svg");
+}
+
+/* En oscuro las imágenes pesan más sobre el fondo, así que se bajan un poco. */
+@media (prefers-color-scheme: dark) {
+	:root:not([data-tema="claro"]) .tarea--con-fondo::before {
+		opacity: 0.16;
+	}
+}
+
+:root[data-tema="oscuro"] .tarea--con-fondo::before {
+	opacity: 0.16;
+}
+
+/* Clases que aplica SortableJS durante el arrastre. */
+.tarea--fantasma {
+	opacity: 0.35;
+}
+
+.tarea--agarrada {
+	box-shadow: var(--sombra-elevada);
+	transform: scale(1.02);
+}
+
+/* -------------------------------------------------------------------- Pie */
+
+.pie {
+	max-width: var(--ancho-maximo);
+	margin: 0 auto;
+	padding: 0 var(--espacio-3) var(--espacio-6);
+}
+
+.pie__texto {
+	margin: 0;
+	color: var(--color-texto-suave);
+	font-size: 0.75rem;
+	text-align: center;
+}
+
+kbd {
+	padding: 0 var(--espacio-1);
+	border: 1px solid var(--color-borde);
+	border-radius: 0.25rem;
+	background-color: var(--color-superficie);
+	font-family: inherit;
+	font-size: 0.6875rem;
+}
+
+/* ------------------------------------------------- Selector de fondo */
+
+.selector-fondo {
+	width: min(28rem, calc(100vw - 2rem));
+	padding: var(--espacio-4);
+	border: 1px solid var(--color-borde);
+	border-radius: var(--radio);
+	background-color: var(--color-superficie);
+	color: var(--color-texto);
+	box-shadow: var(--sombra-elevada);
+}
+
+.selector-fondo::backdrop {
+	background-color: rgba(9, 12, 18, 0.55);
+}
+
+.selector-fondo__titulo {
+	margin: 0;
+	font-size: 1.0625rem;
+}
+
+.selector-fondo__tarea {
+	margin: var(--espacio-1) 0 var(--espacio-4);
+	color: var(--color-texto-suave);
+	font-size: 0.8125rem;
+	overflow-wrap: anywhere;
+}
+
+.selector-fondo__opciones {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: var(--espacio-2);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.selector-fondo__boton {
+	display: flex;
+	flex-direction: column;
+	gap: var(--espacio-1);
+	width: 100%;
+	padding: var(--espacio-1);
+	border: 2px solid var(--color-borde);
+	border-radius: var(--radio-pequeno);
+	background-color: transparent;
+	color: var(--color-texto-suave);
+	font: inherit;
+	font-size: 0.75rem;
+	font-weight: 600;
+	cursor: pointer;
+	transition: border-color 120ms ease, color 120ms ease;
+}
+
+.selector-fondo__boton:hover {
+	border-color: var(--color-texto-suave);
+	color: var(--color-texto);
+}
+
+/* aria-pressed marca cuál está puesto, y el borde lo enseña sin depender solo del color. */
+.selector-fondo__boton[aria-pressed="true"] {
+	border-color: var(--color-acento);
+	color: var(--color-texto);
+}
+
+.selector-fondo__muestra {
+	height: 3rem;
+	border-radius: var(--radio-pequeno);
+	background-color: var(--color-superficie-suave);
+	background-position: center;
+	background-size: cover;
+}
+
+.selector-fondo__pie {
+	display: flex;
+	justify-content: flex-end;
+	margin-top: var(--espacio-4);
+}
+
+/* -------------------------------------- Pantallas estrechas: modo compacto */
+
+/*
+ * Por debajo de 480px, con dos columnas, la tarjeta mide unos 142px y el texto útil 114px: tres
+ * botones con su palabra no caben. Se deja solo el icono y el nombre accesible lo aporta el
+ * aria-label, así que para un lector de pantalla no cambia nada.
+ */
+@media (max-width: 479px) {
+
+	.tarea__accion-texto,
+	.boton__texto {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		margin: -1px;
+		padding: 0;
+		border: 0;
+		overflow: hidden;
+		white-space: nowrap;
+		clip-path: inset(50%);
+	}
+
+	.boton--icono {
+		padding: var(--espacio-2);
+	}
+
+	.tarea__accion {
+		padding: var(--espacio-1);
+	}
+
+	.selector-fondo__opciones {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
 }
 
 /* --------------------------------------------------- Movimiento reducido */

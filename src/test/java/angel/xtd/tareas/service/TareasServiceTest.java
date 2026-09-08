@@ -14,9 +14,12 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import angel.xtd.tareas.almacen.AlmacenFondos;
 import angel.xtd.tareas.almacen.AlmacenTareas;
 import angel.xtd.tareas.config.PropiedadesAlmacen;
+import angel.xtd.tareas.dto.Fondo;
 import angel.xtd.tareas.dto.Tarea;
+import angel.xtd.tareas.error.OrdenInvalidoException;
 import angel.xtd.tareas.error.TareaNoEncontradaException;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
@@ -39,12 +42,22 @@ class TareasServiceTest {
 	@BeforeEach
 	void preparar() {
 		this.archivo = this.directorio.resolve("tareas.json");
-		this.servicio = new TareasService(nuevoAlmacen());
+		this.servicio = new TareasService(nuevoAlmacen(), nuevoAlmacenDeFondos());
+	}
+
+	private AlmacenFondos nuevoAlmacenDeFondos() {
+		AlmacenFondos fondos = new AlmacenFondos(JsonMapper.builder().build(), propiedades());
+		fondos.cargarDesdeArchivo();
+		return fondos;
+	}
+
+	private PropiedadesAlmacen propiedades() {
+		return new PropiedadesAlmacen(this.archivo.toString(), this.directorio.resolve("fondos.json").toString());
 	}
 
 	private AlmacenTareas nuevoAlmacen() {
 		ObjectMapper mapper = JsonMapper.builder().build();
-		AlmacenTareas almacen = new AlmacenTareas(mapper, new PropiedadesAlmacen(this.archivo.toString()));
+		AlmacenTareas almacen = new AlmacenTareas(mapper, propiedades());
 		almacen.cargarDesdeArchivo();
 		return almacen;
 	}
@@ -92,6 +105,64 @@ class TareasServiceTest {
 	}
 
 	@Test
+	@DisplayName("reordenar cambia las posiciones pero no los ids")
+	void reordenaSinTocarIds() {
+		Tarea uno = this.servicio.crear("Uno");
+		Tarea dos = this.servicio.crear("Dos");
+		Tarea tres = this.servicio.crear("Tres");
+
+		List<Tarea> reordenadas = this.servicio.reordenar(List.of(tres.id(), uno.id(), dos.id()));
+
+		assertThat(reordenadas).extracting(Tarea::id).containsExactly(tres.id(), uno.id(), dos.id());
+		assertThat(reordenadas).extracting(Tarea::texto).containsExactly("Tres", "Uno", "Dos");
+	}
+
+	@Test
+	@DisplayName("rechaza un orden con ids desconocidos")
+	void rechazaOrdenConIdsDesconocidos() {
+		Tarea uno = this.servicio.crear("Uno");
+
+		assertThatExceptionOfType(OrdenInvalidoException.class)
+			.isThrownBy(() -> this.servicio.reordenar(List.of(uno.id(), 999)));
+	}
+
+	@Test
+	@DisplayName("rechaza un orden con ids repetidos")
+	void rechazaOrdenConIdsRepetidos() {
+		Tarea uno = this.servicio.crear("Uno");
+		this.servicio.crear("Dos");
+
+		assertThatExceptionOfType(OrdenInvalidoException.class)
+			.isThrownBy(() -> this.servicio.reordenar(List.of(uno.id(), uno.id())));
+	}
+
+	@Test
+	@DisplayName("rechaza un orden al que le faltan tareas, para no perderlas por el camino")
+	void rechazaOrdenIncompleto() {
+		Tarea uno = this.servicio.crear("Uno");
+		this.servicio.crear("Dos");
+
+		assertThatExceptionOfType(OrdenInvalidoException.class)
+			.isThrownBy(() -> this.servicio.reordenar(List.of(uno.id())));
+	}
+
+	@Test
+	@DisplayName("un orden rechazado deja la lista intacta")
+	void ordenRechazadoNoAlteraNada() {
+		Tarea uno = this.servicio.crear("Uno");
+		Tarea dos = this.servicio.crear("Dos");
+
+		try {
+			this.servicio.reordenar(List.of(dos.id(), uno.id(), 999));
+		}
+		catch (OrdenInvalidoException esperada) {
+			// Lo que se comprueba es el estado posterior, no la excepción.
+		}
+
+		assertThat(this.servicio.consultarTodas()).extracting(Tarea::id).containsExactly(uno.id(), dos.id());
+	}
+
+	@Test
 	@DisplayName("actualizar conserva el id y la posición")
 	void actualizaConservandoPosicion() {
 		this.servicio.crear("Uno");
@@ -106,11 +177,11 @@ class TareasServiceTest {
 	}
 
 	@Test
-	@DisplayName("marcar completada conserva el id y el texto")
-	void marcarCompletadaConservaElResto() {
+	@DisplayName("cambiarCompletada solo toca el estado de completada")
+	void cambiaSoloCompletada() {
 		Tarea creada = this.servicio.crear("Uno");
 
-		Tarea marcada = this.servicio.actualizar(creada.id(), creada.texto(), true);
+		Tarea marcada = this.servicio.cambiarCompletada(creada.id(), true);
 
 		assertThat(marcada.completada()).isTrue();
 		assertThat(marcada.texto()).isEqualTo("Uno");
@@ -132,12 +203,12 @@ class TareasServiceTest {
 		Tarea uno = this.servicio.crear("Uno");
 		Tarea dos = this.servicio.crear("Dos");
 		Tarea tres = this.servicio.crear("Tres");
-		this.servicio.eliminar(dos.id());
+		this.servicio.reordenar(List.of(tres.id(), uno.id(), dos.id()));
 
-		TareasService servicioReiniciado = new TareasService(nuevoAlmacen());
+		TareasService servicioReiniciado = new TareasService(nuevoAlmacen(), nuevoAlmacenDeFondos());
 
 		assertThat(servicioReiniciado.consultarTodas()).extracting(Tarea::id)
-			.containsExactly(uno.id(), tres.id());
+			.containsExactly(tres.id(), uno.id(), dos.id());
 	}
 
 	@Test
@@ -162,6 +233,28 @@ class TareasServiceTest {
 
 		this.servicio.eliminar(creada.id());
 		assertThat(Files.readString(this.archivo)).doesNotContain("Uno editada");
+	}
+
+	/**
+	 * Los dos archivos se escriben por separado: si el proceso muere entre la escritura de las tareas
+	 * y la de los fondos, queda un fondo de una tarea que ya no existe. Y como el contador de ids se
+	 * recalcula como max(id)+1 al cargar, ese id puede repartirse otra vez y la tarea nueva heredaría
+	 * un fondo que nadie eligió para ella.
+	 */
+	@Test
+	@DisplayName("al arrancar se descartan los fondos de tareas que ya no existen")
+	void descartaLosFondosHuerfanosAlArrancar() {
+		Tarea uno = this.servicio.crear("Uno");
+		this.servicio.cambiarFondo(uno.id(), Fondo.ONDAS);
+
+		// Se simula el hueco: se asigna a mano un fondo a una tarea que no existe.
+		AlmacenFondos fondos = nuevoAlmacenDeFondos();
+		fondos.asignar(999, Fondo.AURORA);
+
+		TareasService servicioReiniciado = new TareasService(nuevoAlmacen(), fondos);
+		servicioReiniciado.descartarFondosHuerfanos();
+
+		assertThat(servicioReiniciado.consultarFondos()).containsOnlyKeys(uno.id());
 	}
 
 }

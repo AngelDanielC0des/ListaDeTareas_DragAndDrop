@@ -9,6 +9,8 @@ import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.function.IntSupplier;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -27,20 +29,43 @@ import tools.jackson.databind.ObjectMapper;
  *
  * <p><b>No es un repository:</b> no hay ORM ni base de datos. Es simplemente el guardián del estado
  * compartido y de la E/S. Está separado del servicio a propósito: si el {@code Files.move}, el
- * {@code ObjectMapper} y el control de concurrencia vivieran dentro de {@code TareasService}, la
- * lógica de negocio quedaría enterrada bajo la fontanería.
+ * {@code ObjectMapper} y el cerrojo vivieran dentro de {@code TareasService}, la lógica de negocio
+ * quedaría enterrada bajo la fontanería.
  *
- * <h2>Estructura de datos</h2>
- * Una {@link ArrayList} en la que <b>el índice es el orden</b> de la tarea. El {@code id} es
- * identidad y no cambia nunca; el orden lo da la posición dentro del array del JSON, así que la
- * tarea solo necesita los tres campos que se guardan.
+ * <h2>Estructura de datos: {@code ArrayList}, no {@code TreeMap}</h2>
+ * El orden de las tareas es la posición en la lista. Un {@code TreeMap} sirve para claves dispersas
+ * con búsqueda O(log n); aquí las claves serían densas y consecutivas (0..N-1), que es exactamente
+ * la definición de un array. Además la operación estrella de la app —mover una tarea— es la peor
+ * para el árbol: O(n·log n) reasignando la clave de todo el rango afectado, frente a O(n) de un
+ * {@code System.arraycopy}.
  *
  * <h2>Concurrencia</h2>
- * Todos los métodos que tocan la lista son {@code synchronized}. Es lo más simple que funciona: una
- * petición no puede leer la lista a medio modificar ni dos escrituras pueden entrelazarse.
+ * Un {@link ReentrantReadWriteLock} permite lecturas concurrentes y serializa las escrituras. Toda
+ * modificación pasa por {@link #modificar(OperacionDeModificacion)}, que hace leer-modificar-guardar
+ * bajo un único bloqueo: así dos peticiones simultáneas no pueden entrelazarse.
+ *
+ * <p><b>Limitación conocida y aceptada:</b> el cerrojo de escritura se mantiene durante la escritura
+ * en disco, de modo que las lecturas se bloquean mientras se guarda. Soltarlo antes obligaría a
+ * llevar un número de secuencia para garantizar que las escrituras llegan al archivo en el orden
+ * correcto; con un único usuario esa complejidad no compensa.
  */
 @Component
 public class AlmacenTareas {
+
+	/**
+	 * Qué hacer con la lista dentro de una modificación atómica.
+	 *
+	 * <p>Recibe el generador de ids como parámetro en lugar de exponerlo como método público del
+	 * almacén: así reservar un id <b>solo</b> es posible dentro de una modificación, que es la única
+	 * situación en la que la reserva y el guardado ocurren bajo el mismo bloqueo. Antes era un método
+	 * público y el contrato dependía de que quien lo llamara se acordase.
+	 */
+	@FunctionalInterface
+	public interface OperacionDeModificacion<R> {
+
+		R aplicar(List<Tarea> tareas, IntSupplier reservarId);
+
+	}
 
 	private static final Logger log = LoggerFactory.getLogger(AlmacenTareas.class);
 
@@ -53,6 +78,8 @@ public class AlmacenTareas {
 	private final ObjectMapper mapeadorJson;
 
 	private final Path archivo;
+
+	private final ReentrantReadWriteLock cerrojo = new ReentrantReadWriteLock();
 
 	/** Fuente de verdad en memoria. El índice de la lista ES el orden de la tarea. */
 	private final List<Tarea> tareas = new ArrayList<>();
@@ -68,9 +95,13 @@ public class AlmacenTareas {
 	/**
 	 * Carga el archivo al arrancar. Si no existe, se empieza con la lista vacía: un primer arranque
 	 * no es un error.
+	 *
+	 * <p>En la aplicación lo llama Spring por el {@code @PostConstruct}; es público porque las pruebas
+	 * del servicio lo invocan a mano para simular un reinicio, y viven en otro paquete.
 	 */
 	@PostConstruct
-	public synchronized void cargarDesdeArchivo() {
+	public void cargarDesdeArchivo() {
+		this.cerrojo.writeLock().lock();
 		try {
 			if (!Files.exists(this.archivo)) {
 				log.info("No existe {}; se arranca con la lista vacía", this.archivo);
@@ -89,87 +120,84 @@ public class AlmacenTareas {
 		catch (IOException | JacksonException excepcion) {
 			throw new AlmacenamientoException("No se pudo leer el archivo de tareas: " + this.archivo, excepcion);
 		}
+		finally {
+			this.cerrojo.writeLock().unlock();
+		}
 	}
 
 	/** Devuelve una copia inmutable, para que nadie pueda modificar el estado interno por la puerta de atrás. */
-	public synchronized List<Tarea> consultarTodas() {
-		List<Tarea> resultado = List.copyOf(this.tareas);
-		return resultado;
-	}
-
-	public synchronized Optional<Tarea> buscarPorId(int id) {
-		Optional<Tarea> resultado = this.tareas.stream().filter(tarea -> tarea.id() == id).findFirst();
-		return resultado;
+	public List<Tarea> consultarTodas() {
+		this.cerrojo.readLock().lock();
+		try {
+			List<Tarea> resultado = List.copyOf(this.tareas);
+			return resultado;
+		}
+		finally {
+			this.cerrojo.readLock().unlock();
+		}
 	}
 
 	/**
-	 * Crea una tarea al final de la lista y la guarda.
+	 * Busca una tarea concreta sin copiar la lista entera.
 	 *
-	 * <p>El id sale de un contador propio y no del tamaño de la lista. Con {@code size()} habría
-	 * colisiones: con tres tareas (1, 2, 3), al borrar la 2 el tamaño baja a 2 y la siguiente tarea
-	 * recibiría el id 3, machacando una existente.
+	 * <p>Recorrer aquí evita que quien solo quiere una tarea tenga que pedir {@link #consultarTodas()}
+	 * y pagar una copia O(n) para después descartarla.
 	 */
-	public synchronized Tarea anadirAlFinal(String texto) {
-		Tarea nueva = new Tarea(this.siguienteId, texto, false);
-
-		this.tareas.add(nueva);
-		guardarDeshaciendoSiFalla(() -> this.tareas.remove(nueva));
-		this.siguienteId++;
-
-		log.debug("anadirAlFinal() -> creada tarea id={}", nueva.id());
-		return nueva;
-	}
-
-	/** Sustituye una tarea por otra con el mismo id, en su misma posición. */
-	public synchronized boolean reemplazar(Tarea tarea) {
-		int posicion = buscarPosicion(tarea.id());
-		if (posicion == -1) {
-			return false;
+	public Optional<Tarea> buscarPorId(int id) {
+		this.cerrojo.readLock().lock();
+		try {
+			Optional<Tarea> resultado = this.tareas.stream().filter(tarea -> tarea.id() == id).findFirst();
+			return resultado;
 		}
-
-		Tarea anterior = this.tareas.set(posicion, tarea);
-		guardarDeshaciendoSiFalla(() -> this.tareas.set(posicion, anterior));
-
-		log.debug("reemplazar() -> actualizada tarea id={}", tarea.id());
-		return true;
-	}
-
-	public synchronized boolean eliminar(int id) {
-		int posicion = buscarPosicion(id);
-		if (posicion == -1) {
-			return false;
+		finally {
+			this.cerrojo.readLock().unlock();
 		}
-
-		Tarea eliminada = this.tareas.remove(posicion);
-		guardarDeshaciendoSiFalla(() -> this.tareas.add(posicion, eliminada));
-
-		log.debug("eliminar() -> eliminada tarea id={}", id);
-		return true;
 	}
 
-	private int buscarPosicion(int id) {
-		for (int posicion = 0; posicion < this.tareas.size(); posicion++) {
-			if (this.tareas.get(posicion).id() == id) {
-				return posicion;
+	/**
+	 * Ejecuta una modificación de la lista de forma atómica y la persiste.
+	 *
+	 * <p>La operación recibe la lista real y puede mutarla, además de un generador con el que reservar
+	 * ids nuevos. Al terminar se escribe el archivo; si la escritura falla, se restauran la lista y el
+	 * contador de ids al estado previo para que memoria y disco nunca queden desincronizados.
+	 *
+	 * @param operacion qué hacer con la lista; devuelve lo que el servicio quiera comunicar
+	 * @return lo que devuelva la operación
+	 */
+	public <R> R modificar(OperacionDeModificacion<R> operacion) {
+		this.cerrojo.writeLock().lock();
+		try {
+			List<Tarea> copiaSeguridad = List.copyOf(this.tareas);
+			int idAntesDeOperar = this.siguienteId;
+			try {
+				R resultado = operacion.aplicar(this.tareas, this::reservarSiguienteId);
+				guardarEnArchivo();
+				log.debug("modificar() -> {} tareas persistidas", this.tareas.size());
+				return resultado;
+			}
+			catch (RuntimeException excepcion) {
+				this.tareas.clear();
+				this.tareas.addAll(copiaSeguridad);
+				this.siguienteId = idAntesDeOperar;
+				throw excepcion;
 			}
 		}
-		return -1;
+		finally {
+			this.cerrojo.writeLock().unlock();
+		}
 	}
 
 	/**
-	 * Guarda y, si la escritura falla, revierte el cambio que se acababa de hacer en memoria.
+	 * Reserva el siguiente id libre y avanza el contador.
 	 *
-	 * <p>Sin esto, un fallo de disco dejaría la lista en memoria diciendo una cosa y el archivo otra,
-	 * y el usuario vería su cambio aplicado aunque no se hubiera guardado.
+	 * <p>Sustituye al {@code nuevoId = mapa.size()} del esqueleto, que colisionaba: con 3 tareas
+	 * (1, 2, 3), al borrar la 2 el tamaño baja a 2 y la siguiente tarea recibiría el id 3, machacando
+	 * una existente.
 	 */
-	private void guardarDeshaciendoSiFalla(Runnable deshacer) {
-		try {
-			guardarEnArchivo();
-		}
-		catch (RuntimeException excepcion) {
-			deshacer.run();
-			throw excepcion;
-		}
+	private int reservarSiguienteId() {
+		int resultado = this.siguienteId;
+		this.siguienteId++;
+		return resultado;
 	}
 
 	/**

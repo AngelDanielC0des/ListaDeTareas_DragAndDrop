@@ -36,76 +36,66 @@ class AlmacenTareasTest {
 
 	private AlmacenTareas nuevoAlmacen(Path rutaDelArchivo) {
 		AlmacenTareas almacen = new AlmacenTareas(JsonMapper.builder().build(),
-				new PropiedadesAlmacen(rutaDelArchivo.toString()));
+				new PropiedadesAlmacen(rutaDelArchivo.toString(), this.directorio.resolve("fondos.json").toString()));
 		almacen.cargarDesdeArchivo();
 		return almacen;
 	}
 
-	/**
-	 * Ocupa la ruta del archivo con un directorio no vacío: el contenido se serializa bien, pero al
-	 * mover el temporal sobre el destino la operación falla. Es la forma de provocar un fallo de E/S
-	 * justo en el momento interesante, cuando la lista ya se ha modificado en memoria.
-	 */
-	private Path rutaImposibleDeEscribir(String nombre) throws Exception {
-		Path ruta = this.directorio.resolve(nombre);
-		Files.createDirectory(ruta);
-		Files.createDirectory(ruta.resolve("no-esta-vacio"));
-		return ruta;
-	}
-
 	@Test
-	@DisplayName("si la escritura falla al crear, la tarea no se queda en memoria")
-	void deshaceElAltaSiLaEscrituraFalla() throws Exception {
+	@DisplayName("si la escritura falla, la lista en memoria vuelve a como estaba")
+	void deshaceElCambioSiLaEscrituraFalla() throws Exception {
+		// Se ocupa la ruta del archivo con un DIRECTORIO: el contenido se serializa bien, pero al
+		// mover el temporal sobre el destino la operación falla. Es la manera de provocar un fallo
+		// de E/S justo en el momento interesante, después de haber mutado ya la lista.
 		Path rutaOcupada = this.directorio.resolve("ocupada.json");
-		// El almacén arranca con la ruta libre y solo DESPUÉS se ocupa, para que falle al guardar.
 		AlmacenTareas almacen = nuevoAlmacen(rutaOcupada);
-		rutaImposibleDeEscribir("ocupada.json");
 
-		assertThatExceptionOfType(AlmacenamientoException.class)
-			.isThrownBy(() -> almacen.anadirAlFinal("No debería sobrevivir"));
+		// El almacen arranca con la ruta libre y solo DESPUES se ocupa con un directorio no vacio:
+		// asi el fallo ocurre al mover el temporal sobre el destino, que es el momento interesante,
+		// y no antes al cargar.
+		Files.createDirectory(rutaOcupada);
+		Files.createDirectory(rutaOcupada.resolve("no-esta-vacio"));
+
+		assertThatExceptionOfType(AlmacenamientoException.class).isThrownBy(() -> almacen.modificar((tareas, reservarId) -> {
+			tareas.add(new Tarea(reservarId.getAsInt(), "No debería sobrevivir", false));
+			return null;
+		}));
 
 		assertThat(almacen.consultarTodas()).isEmpty();
 	}
 
 	@Test
-	@DisplayName("si la escritura falla al borrar, la tarea sigue en su sitio")
-	void deshaceElBorradoSiLaEscrituraFalla() throws Exception {
-		AlmacenTareas almacen = nuevoAlmacen(this.archivo);
-		almacen.anadirAlFinal("Uno");
-		Tarea dos = almacen.anadirAlFinal("Dos");
-		almacen.anadirAlFinal("Tres");
-
-		// Se sustituye el archivo por un directorio para que el siguiente guardado reviente.
-		Files.delete(this.archivo);
-		Files.createDirectory(this.archivo);
-		Files.createDirectory(this.archivo.resolve("no-esta-vacio"));
-
-		assertThatExceptionOfType(AlmacenamientoException.class).isThrownBy(() -> almacen.eliminar(dos.id()));
-
-		assertThat(almacen.consultarTodas()).extracting(Tarea::texto).containsExactly("Uno", "Dos", "Tres");
-	}
-
-	@Test
-	@DisplayName("un alta fallida no consume el id que iba a usar")
-	void noConsumeElIdSiLaEscrituraFalla() throws Exception {
+	@DisplayName("un fallo de escritura tampoco consume el id que se había reservado")
+	void deshaceLaReservaDeIdSiLaEscrituraFalla() throws Exception {
 		Path rutaOcupada = this.directorio.resolve("ocupada2.json");
 		AlmacenTareas almacen = nuevoAlmacen(rutaOcupada);
-		rutaImposibleDeEscribir("ocupada2.json");
+
+		Files.createDirectory(rutaOcupada);
+		Files.createDirectory(rutaOcupada.resolve("no-esta-vacio"));
 
 		for (int intento = 0; intento < 3; intento++) {
 			try {
-				almacen.anadirAlFinal("Fallará");
+				almacen.modificar((tareas, reservarId) -> {
+					tareas.add(new Tarea(reservarId.getAsInt(), "Fallará", false));
+					return null;
+				});
 			}
 			catch (AlmacenamientoException esperada) {
 				// Lo que se comprueba es el estado posterior, no la excepción.
 			}
 		}
 
-		// Al liberar la ruta, la primera tarea que se guarde bien debe recibir el primer id.
+		// Tres intentos fallidos no deben haber gastado los ids 1, 2 y 3: al liberar la ruta, la
+		// primera tarea que se guarde bien tiene que seguir recibiendo el primer id.
 		Files.delete(rutaOcupada.resolve("no-esta-vacio"));
 		Files.delete(rutaOcupada);
 
-		assertThat(almacen.anadirAlFinal("Bien").id()).isEqualTo(Tarea.PRIMER_ID);
+		Tarea creada = almacen.modificar((tareas, reservarId) -> {
+			Tarea nueva = new Tarea(reservarId.getAsInt(), "Bien", false);
+			tareas.add(nueva);
+			return nueva;
+		});
+		assertThat(creada.id()).isEqualTo(Tarea.PRIMER_ID);
 	}
 
 	/**
@@ -120,8 +110,8 @@ class AlmacenTareasTest {
 	@DisplayName("un fallo de escritura deja intacto el archivo que ya estaba guardado")
 	void elArchivoAnteriorSobreviveAlFallo() throws Exception {
 		AlmacenTareas almacen = nuevoAlmacen(this.archivo);
-		almacen.anadirAlFinal("Uno");
-		almacen.anadirAlFinal("Dos");
+		almacen.modificar((tareas, reservarId) -> tareas.add(new Tarea(reservarId.getAsInt(), "Uno", false)));
+		almacen.modificar((tareas, reservarId) -> tareas.add(new Tarea(reservarId.getAsInt(), "Dos", false)));
 		String contenidoBueno = Files.readString(this.archivo, StandardCharsets.UTF_8);
 
 		// Se hace imposible escribir sustituyendo el archivo por un directorio no vacío, pero
@@ -131,7 +121,8 @@ class AlmacenTareasTest {
 		Files.createDirectory(this.archivo.resolve("no-esta-vacio"));
 
 		assertThatExceptionOfType(AlmacenamientoException.class)
-			.isThrownBy(() -> almacen.anadirAlFinal("No deberia llegar al disco"));
+			.isThrownBy(() -> almacen.modificar((tareas, reservarId) -> tareas
+				.add(new Tarea(reservarId.getAsInt(), "No deberia llegar al disco", false))));
 
 		// Se devuelve el archivo a su sitio con el contenido que tenía y se recarga desde cero.
 		Files.delete(this.archivo.resolve("no-esta-vacio"));
@@ -146,53 +137,29 @@ class AlmacenTareasTest {
 	@DisplayName("no queda ningún archivo temporal tirado tras un guardado correcto")
 	void noDejaTemporalesTrasGuardar() throws Exception {
 		AlmacenTareas almacen = nuevoAlmacen(this.archivo);
-		almacen.anadirAlFinal("Uno");
+		almacen.modificar((tareas, reservarId) -> tareas.add(new Tarea(reservarId.getAsInt(), "Uno", false)));
 
 		try (var contenido = Files.list(this.directorio)) {
-			assertThat(contenido.map(Path::getFileName).map(Path::toString))
-				.containsExactly("tareas.json");
+			assertThat(contenido.map(Path::getFileName).map(Path::toString)).containsExactly("tareas.json");
 		}
 	}
 
 	@Test
 	@DisplayName("buscarPorId encuentra la tarea sin devolver la lista entera")
-	void buscaPorId() {
+	void buscaPorIdSinCopiarLaLista() {
 		AlmacenTareas almacen = nuevoAlmacen(this.archivo);
-		almacen.anadirAlFinal("Uno");
-		almacen.anadirAlFinal("Dos");
+		almacen.modificar((tareas, reservarId) -> tareas.add(new Tarea(reservarId.getAsInt(), "Uno", false)));
+		almacen.modificar((tareas, reservarId) -> tareas.add(new Tarea(reservarId.getAsInt(), "Dos", false)));
 
 		assertThat(almacen.buscarPorId(2)).get().extracting(Tarea::texto).isEqualTo("Dos");
 		assertThat(almacen.buscarPorId(99)).isEmpty();
 	}
 
 	@Test
-	@DisplayName("reemplazar y eliminar avisan si la tarea no existe en vez de fallar")
-	void avisanSiLaTareaNoExiste() {
-		AlmacenTareas almacen = nuevoAlmacen(this.archivo);
-
-		assertThat(almacen.reemplazar(new Tarea(99, "Fantasma", false))).isFalse();
-		assertThat(almacen.eliminar(99)).isFalse();
-	}
-
-	@Test
-	@DisplayName("reemplazar conserva la posición de la tarea")
-	void reemplazarConservaLaPosicion() {
-		AlmacenTareas almacen = nuevoAlmacen(this.archivo);
-		almacen.anadirAlFinal("Uno");
-		Tarea dos = almacen.anadirAlFinal("Dos");
-		almacen.anadirAlFinal("Tres");
-
-		assertThat(almacen.reemplazar(new Tarea(dos.id(), "Dos editada", true))).isTrue();
-
-		assertThat(almacen.consultarTodas()).extracting(Tarea::texto)
-			.containsExactly("Uno", "Dos editada", "Tres");
-	}
-
-	@Test
 	@DisplayName("consultarTodas devuelve una copia que no permite tocar el estado interno")
 	void devuelveUnaCopiaInmutable() {
 		AlmacenTareas almacen = nuevoAlmacen(this.archivo);
-		almacen.anadirAlFinal("Uno");
+		almacen.modificar((tareas, reservarId) -> tareas.add(new Tarea(reservarId.getAsInt(), "Uno", false)));
 
 		List<Tarea> copia = almacen.consultarTodas();
 

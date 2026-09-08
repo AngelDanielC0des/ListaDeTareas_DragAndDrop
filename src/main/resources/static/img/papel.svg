@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300" preserveAspectRatio="none" role="presentation">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#b45309" stop-opacity=".42"/>
+      <stop offset="1" stop-color="#f59e0b" stop-opacity=".3"/>
+    </linearGradient>
+    <filter id="r">
+      <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="4"/>
+      <feColorMatrix type="saturate" values="0"/>
+    </filter>
+  </defs>
+  <rect width="400" height="300" fill="url(#g)"/>
+  <rect width="400" height="300" filter="url(#r)" opacity=".22"/>
+</svg>

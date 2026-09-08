@@ -1,14 +1,24 @@
 package angel.xtd.tareas.service;
 
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.function.Function;
+import java.util.function.UnaryOperator;
+import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import angel.xtd.tareas.almacen.AlmacenFondos;
 import angel.xtd.tareas.almacen.AlmacenTareas;
+import angel.xtd.tareas.dto.Fondo;
 import angel.xtd.tareas.dto.Tarea;
+import angel.xtd.tareas.error.OrdenInvalidoException;
 import angel.xtd.tareas.error.TareaNoEncontradaException;
+import jakarta.annotation.PostConstruct;
 
 /**
  * Lógica de negocio de la lista de tareas.
@@ -16,6 +26,9 @@ import angel.xtd.tareas.error.TareaNoEncontradaException;
  * <p>No sabe nada de HTTP ni de archivos: recibe y devuelve objetos de dominio, y lanza excepciones
  * de dominio. Traducir eso a códigos de estado es trabajo del manejador global de errores; leer y
  * escribir el JSON, del almacén.
+ *
+ * <p>Toda mutación se ejecuta dentro de {@link AlmacenTareas#modificar}, para que leer-modificar-
+ * guardar ocurra bajo un único bloqueo y no pueda entrelazarse con otra petición.
  */
 @Service
 public class TareasService {
@@ -24,8 +37,27 @@ public class TareasService {
 
 	private final AlmacenTareas almacen;
 
-	public TareasService(AlmacenTareas almacen) {
+	private final AlmacenFondos fondos;
+
+	public TareasService(AlmacenTareas almacen, AlmacenFondos fondos) {
 		this.almacen = almacen;
+		this.fondos = fondos;
+	}
+
+	/**
+	 * Al arrancar, descarta los fondos de tareas que ya no existen.
+	 *
+	 * <p>Durante el uso normal basta con olvidar el fondo al borrar la tarea, pero los dos archivos
+	 * se escriben por separado: si el proceso muere justo entre las dos escrituras, queda un fondo
+	 * huérfano. Y como el contador de ids se recalcula como {@code max(id) + 1} al cargar, ese id
+	 * puede volver a repartirse y la tarea nueva heredaría un fondo que nadie eligió para ella.
+	 *
+	 * <p>Spring garantiza que los dos almacenes están construidos —y por tanto cargados— antes de
+	 * inyectarlos aquí, así que este es el primer momento en que se pueden comparar.
+	 */
+	@PostConstruct
+	void descartarFondosHuerfanos() {
+		this.fondos.conservarSolo(this.almacen.consultarTodas().stream().map(Tarea::id).toList());
 	}
 
 	public List<Tarea> consultarTodas() {
@@ -42,26 +74,144 @@ public class TareasService {
 
 	/** La tarea nueva se añade al final de la lista, que es donde el usuario espera verla aparecer. */
 	public Tarea crear(String texto) {
-		Tarea resultado = this.almacen.anadirAlFinal(normalizarTexto(texto));
+		String textoLimpio = normalizarTexto(texto);
+		Tarea resultado = this.almacen.modificar((tareas, reservarId) -> {
+			Tarea nueva = new Tarea(reservarId.getAsInt(), textoLimpio, false);
+			tareas.add(nueva);
+			return nueva;
+		});
 		log.info("crear() -> creada tarea id={}", resultado.id());
 		return resultado;
 	}
 
 	/** Reemplaza texto y estado conservando el id y, sobre todo, la posición en la lista. */
 	public Tarea actualizar(int id, String texto, boolean completada) {
-		Tarea actualizada = new Tarea(id, normalizarTexto(texto), completada);
-		if (!this.almacen.reemplazar(actualizada)) {
-			throw new TareaNoEncontradaException(id);
-		}
+		String textoLimpio = normalizarTexto(texto);
+		Tarea resultado = reemplazarEnPosicion(id, anterior -> new Tarea(id, textoLimpio, completada));
 		log.info("actualizar({}) -> actualizada", id);
-		return actualizada;
+		return resultado;
+	}
+
+	public Tarea cambiarCompletada(int id, boolean completada) {
+		Tarea resultado = reemplazarEnPosicion(id, anterior -> anterior.conCompletada(completada));
+		log.info("cambiarCompletada({}, {}) -> actualizada", id, completada);
+		return resultado;
 	}
 
 	public void eliminar(int id) {
-		if (!this.almacen.eliminar(id)) {
+		this.almacen.modificar((tareas, reservarId) -> {
+			int posicion = buscarPosicionDeTarea(tareas, id);
+			return tareas.remove(posicion);
+		});
+
+		// Si no se olvidara, el archivo de fondos acumularía tareas que ya no existen y un id
+		// reutilizado tras reiniciar heredaría un fondo que nadie eligió para él.
+		this.fondos.olvidar(id);
+
+		log.info("eliminar({}) -> eliminada", id);
+	}
+
+	/* -------------------------------------------------------- Fondo de las tarjetas */
+
+	public Map<Integer, Fondo> consultarFondos() {
+		Map<Integer, Fondo> resultado = this.fondos.consultarTodos();
+		log.debug("consultarFondos() -> {} tareas con fondo", resultado.size());
+		return resultado;
+	}
+
+	/**
+	 * Asigna el fondo de una tarea.
+	 *
+	 * <p>Se comprueba antes que la tarea exista: si no, se guardaría el fondo de algo que no está y
+	 * quedaría ahí para siempre, porque la limpieza solo se dispara al borrar.
+	 */
+	public void cambiarFondo(int id, Fondo fondo) {
+		if (this.almacen.buscarPorId(id).isEmpty()) {
 			throw new TareaNoEncontradaException(id);
 		}
-		log.info("eliminar({}) -> eliminada", id);
+		this.fondos.asignar(id, fondo);
+		log.info("cambiarFondo({}, {})", id, fondo);
+	}
+
+	/**
+	 * Aplica el orden del drag &amp; drop.
+	 *
+	 * <p>Recibe todos los ids en el orden deseado y reconstruye la lista. <b>Ningún id cambia:</b>
+	 * lo que se mueve es la posición. Renumerar los ids al arrastrar haría que una petición en vuelo
+	 * (por ejemplo un {@code DELETE} lanzado justo antes) acabase afectando a otra tarea.
+	 */
+	public List<Tarea> reordenar(List<Integer> idsEnOrden) {
+		List<Tarea> resultado = this.almacen.modificar((tareas, reservarId) -> {
+			validarQueEsPermutacionExacta(tareas, idsEnOrden);
+
+			Map<Integer, Tarea> tareasPorId = tareas.stream()
+				.collect(Collectors.toMap(Tarea::id, Function.identity()));
+			List<Tarea> reordenadas = idsEnOrden.stream().map(tareasPorId::get).toList();
+
+			tareas.clear();
+			tareas.addAll(reordenadas);
+			return List.copyOf(tareas);
+		});
+		log.info("reordenar() -> nuevo orden de ids {}", idsEnOrden);
+		return resultado;
+	}
+
+	/**
+	 * Sustituye una tarea por otra derivada de ella, en su misma posición.
+	 *
+	 * <p>Recoge el patrón que compartían {@link #actualizar} y {@link #cambiarCompletada}: localizar
+	 * la posición, construir la tarea nueva y colocarla donde estaba la anterior. Lo único que
+	 * cambiaba entre ambas era cómo se construye la tarea nueva, y eso es lo que recibe como
+	 * parámetro.
+	 */
+	private Tarea reemplazarEnPosicion(int id, UnaryOperator<Tarea> transformacion) {
+		Tarea resultado = this.almacen.modificar((tareas, reservarId) -> {
+			int posicion = buscarPosicionDeTarea(tareas, id);
+			Tarea actualizada = transformacion.apply(tareas.get(posicion));
+			tareas.set(posicion, actualizada);
+			return actualizada;
+		});
+		return resultado;
+	}
+
+	/**
+	 * Comprueba que lo recibido es una permutación EXACTA de las tareas actuales: ni repetidos, ni
+	 * ids desconocidos, ni tareas que se quedan fuera. Sin esto, un cliente con la lista
+	 * desactualizada podría borrar tareas sin querer al reordenar.
+	 */
+	private void validarQueEsPermutacionExacta(List<Tarea> tareas, List<Integer> idsEnOrden) {
+		Set<Integer> idsRecibidos = new LinkedHashSet<>(idsEnOrden);
+		if (idsRecibidos.size() != idsEnOrden.size()) {
+			throw new OrdenInvalidoException("El nuevo orden contiene ids repetidos");
+		}
+
+		Set<Integer> idsActuales = tareas.stream().map(Tarea::id).collect(Collectors.toCollection(LinkedHashSet::new));
+		if (!idsRecibidos.equals(idsActuales)) {
+			Set<Integer> desconocidos = new LinkedHashSet<>(idsRecibidos);
+			desconocidos.removeAll(idsActuales);
+
+			Set<Integer> ausentes = new LinkedHashSet<>(idsActuales);
+			ausentes.removeAll(idsRecibidos);
+
+			throw new OrdenInvalidoException(
+					"El nuevo orden debe contener exactamente las %d tareas existentes. Ids desconocidos: %s; ids ausentes: %s"
+						.formatted(idsActuales.size(), desconocidos, ausentes));
+		}
+	}
+
+	/**
+	 * Devuelve la posición de una tarea, o lanza {@link TareaNoEncontradaException} si no existe.
+	 *
+	 * <p>Búsqueda lineal: con listas de tareas es más rápida que cualquier índice, y no hay que
+	 * mantenerla al reordenar.
+	 */
+	private int buscarPosicionDeTarea(List<Tarea> tareas, int id) {
+		for (int posicion = 0; posicion < tareas.size(); posicion++) {
+			if (tareas.get(posicion).id() == id) {
+				return posicion;
+			}
+		}
+		throw new TareaNoEncontradaException(id);
 	}
 
 	/** Quita espacios sobrantes de los extremos; {@code @NotBlank} ya ha descartado el texto vacío. */

@@ -4,68 +4,190 @@
 <head>
 	<meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1">
-	<title>Lista de tareas</title>
+	<title>Mis tareas</title>
+
+	<!--
+		El tema se aplica aquí, en línea y antes de la hoja de estilos, y no desde un módulo: los
+		módulos se ejecutan después del primer pintado, así que leerlo más tarde produciría un
+		fogonazo del tema claro antes de cambiar al oscuro.
+	-->
+	<script>
+		try {
+			const tema = localStorage.getItem('tareas.tema');
+			if (tema === 'claro' || tema === 'oscuro') {
+				document.documentElement.dataset.tema = tema;
+			}
+		}
+		catch {
+			// Ventana privada o datos del sitio bloqueados: se usa la preferencia del sistema.
+		}
+	</script>
+
 	<link rel="stylesheet" href="css/estilos.css">
 </head>
 
 <body>
+	<!-- Primer elemento enfocable: deja saltarse la cabecera y el selector de tema con el tabulador. -->
+	<a class="salto-al-contenido" href="#lista">Saltar al listado de tareas</a>
+
 	<header class="cabecera">
 		<div class="cabecera__contenido">
-			<h1 class="cabecera__titulo">Mis tareas</h1>
+			<div class="cabecera__fila">
+				<h1 class="cabecera__titulo">Mis tareas</h1>
+
+				<!--
+					Radios y no botones: traen puesta la navegación con flechas y el agrupado
+					semántico, sin tener que añadir ARIA a mano.
+				-->
+				<fieldset class="tema">
+					<legend class="visualmente-oculto">Tema de la interfaz</legend>
+					<label class="tema__opcion">
+						<input class="tema__radio" type="radio" name="tema" value="claro">
+						<span class="tema__texto">Claro</span>
+					</label>
+					<label class="tema__opcion">
+						<input class="tema__radio" type="radio" name="tema" value="oscuro">
+						<span class="tema__texto">Oscuro</span>
+					</label>
+					<label class="tema__opcion">
+						<input class="tema__radio" type="radio" name="tema" value="sistema" checked>
+						<span class="tema__texto">Sistema</span>
+					</label>
+				</fieldset>
+			</div>
+
 			<p class="cabecera__resumen" id="resumen">Cargando…</p>
+
+			<!-- aria-hidden porque el resumen de arriba ya dice lo mismo: anunciarlo dos veces molesta. -->
+			<progress class="cabecera__progreso" id="progreso" max="1" value="0" aria-hidden="true"></progress>
 		</div>
 	</header>
 
 	<main class="contenido-principal">
-		<!-- El maxlength debe coincidir con Tarea.MAX_CARACTERES_TEXTO en el servidor. Hay un test
-		     que compara los dos numeros y falla si alguien cambia uno y se olvida del otro. -->
+		<!--
+			Ni este formulario ni la plantilla de abajo llevan un maxlength escrito a mano: el límite
+			lo dicta el servidor y lo aplica vista.js con lo que devuelve /tarea/configuracion.
+		-->
 		<form class="formulario" id="formulario-nueva" novalidate>
 			<label class="formulario__etiqueta" for="campo-texto">Nueva tarea</label>
 			<div class="formulario__fila">
-				<input class="formulario__campo" id="campo-texto" name="texto" type="text" maxlength="280"
-					autocomplete="off" placeholder="¿Qué hay que hacer?">
-				<button class="boton boton--principal" id="boton-anadir" type="submit">Añadir</button>
+				<input class="formulario__campo" id="campo-texto" name="texto" type="text" autocomplete="off"
+					placeholder="¿Qué hay que hacer?" aria-describedby="contador">
+
+				<!--
+					El signo va en un <svg aria-hidden>, así que el nombre accesible del botón sale
+					del texto de al lado, que en pantallas estrechas se oculta solo visualmente. Un
+					botón con únicamente un icono y sin nombre sería mudo para un lector de pantalla.
+				-->
+				<button class="boton boton--principal boton--icono" id="boton-anadir" type="submit">
+					<svg class="icono" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+						<path d="M12 5v14M5 12h14" />
+					</svg>
+					<span class="boton__texto">Añadir tarea</span>
+				</button>
 			</div>
+			<p class="formulario__contador" id="contador"></p>
 		</form>
 
 		<!-- Único punto donde se muestran los errores de toda la aplicación. -->
 		<p class="aviso-error" id="aviso-error" role="alert" hidden></p>
 
+		<!-- Sustituye al confirm() del navegador al borrar: no bloquea y además permite deshacer. -->
+		<div class="aviso-deshacer" id="aviso-deshacer" role="status" hidden>
+			<span class="aviso-deshacer__texto" id="aviso-deshacer-texto"></span>
+			<button class="aviso-deshacer__boton" id="boton-deshacer" type="button">Deshacer</button>
+		</div>
+
 		<h2 class="visualmente-oculto">Listado de tareas</h2>
-		<ul class="lista" id="lista" role="list"></ul>
+		<ul class="lista" id="lista" role="list" tabindex="-1"></ul>
 
 		<p class="lista-vacia" id="lista-vacia" hidden>Todavía no hay tareas. Añade la primera ahí arriba.</p>
 	</main>
+
+	<footer class="pie">
+		<p class="pie__texto">Arrastra por el asa <span aria-hidden="true">⠿</span> para reordenar. Con el teclado:
+			<kbd>Ctrl</kbd> + <kbd>↑</kbd> / <kbd>↓</kbd>. Pulsa <kbd>n</kbd> para escribir una tarea nueva.</p>
+	</footer>
 
 	<!-- Región para lectores de pantalla: anuncia los cambios que se ven pero no se «oyen». -->
 	<div class="visualmente-oculto" id="anuncios" role="status" aria-live="polite"></div>
 
 	<!--
+		Selector de fondo. Es un <dialog> nativo: trae el foco atrapado, el cierre con Escape, el
+		fondo oscurecido y la devolución del foco al botón que lo abrió, todo sin ARIA a mano.
+	-->
+	<dialog class="selector-fondo" id="selector-fondo" aria-labelledby="selector-fondo-titulo">
+		<h2 class="selector-fondo__titulo" id="selector-fondo-titulo">Fondo de la tarjeta</h2>
+		<p class="selector-fondo__tarea" id="selector-fondo-tarea"></p>
+
+		<ul class="selector-fondo__opciones" id="selector-fondo-opciones" role="list"></ul>
+
+		<form method="dialog" class="selector-fondo__pie">
+			<button class="boton" type="submit">Cerrar</button>
+		</form>
+	</dialog>
+
+	<!--
 		Plantilla de una tarjeta. Se clona por cada tarea en lugar de construir HTML con cadenas:
 		así el texto del usuario entra siempre por textContent y nunca puede inyectar marcado.
+
+		Los botones llevan icono y texto: en pantallas estrechas el texto se oculta visualmente para
+		que quepan las tres acciones, pero el nombre accesible lo pone vista.js con un aria-label que
+		dice de qué tarea se trata. Sin eso, un lector de pantalla repetiría «Borrar, botón» una vez
+		por tarjeta sin decir nunca cuál.
 	-->
 	<template id="plantilla-tarea">
 		<li class="tarea">
 			<div class="tarea__cabecera">
-				<input class="tarea__casilla" type="checkbox">
-				<label class="visualmente-oculto">Completada</label>
+				<span class="tarea__control-completada">
+					<input class="tarea__casilla" type="checkbox">
+					<label class="visualmente-oculto">Completada</label>
+				</span>
+				<button class="tarea__asa" type="button">
+					<svg class="icono" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+						<circle cx="9" cy="6" r="1.5" />
+						<circle cx="15" cy="6" r="1.5" />
+						<circle cx="9" cy="12" r="1.5" />
+						<circle cx="15" cy="12" r="1.5" />
+						<circle cx="9" cy="18" r="1.5" />
+						<circle cx="15" cy="18" r="1.5" />
+					</svg>
+				</button>
 			</div>
 
 			<p class="tarea__texto"></p>
-			<textarea class="tarea__editor" rows="3" maxlength="280" hidden></textarea>
+			<textarea class="tarea__editor" rows="4" hidden></textarea>
+
+			<button class="tarea__boton-desplegar" type="button" aria-expanded="false" hidden>Ver más</button>
 
 			<div class="tarea__acciones">
-				<button class="tarea__accion" type="button" data-accion="editar">Editar</button>
-				<button class="tarea__accion tarea__accion--peligro" type="button" data-accion="eliminar">Borrar</button>
-			</div>
-
-			<div class="tarea__acciones" data-modo="edicion" hidden>
-				<button class="tarea__accion" type="button" data-accion="guardar">Guardar</button>
-				<button class="tarea__accion" type="button" data-accion="cancelar">Cancelar</button>
+				<button class="tarea__accion" type="button" data-accion="editar">
+					<svg class="icono" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+						<path d="M4 20h4L18 10l-4-4L4 16v4z" />
+						<path d="M14 6l4 4" />
+					</svg>
+					<span class="tarea__accion-texto">Editar</span>
+				</button>
+				<button class="tarea__accion" type="button" data-accion="fondo">
+					<svg class="icono" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+						<rect x="3" y="5" width="18" height="14" rx="2" />
+						<path d="M3 16l5-5 4 4 3-3 6 6" />
+						<circle cx="9" cy="9.5" r="1.3" />
+					</svg>
+					<span class="tarea__accion-texto">Fondo</span>
+				</button>
+				<button class="tarea__accion tarea__accion--peligro" type="button" data-accion="eliminar">
+					<svg class="icono" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+						<path d="M5 7h14M10 7V5h4v2M7 7l1 13h8l1-13" />
+					</svg>
+					<span class="tarea__accion-texto">Borrar</span>
+				</button>
 			</div>
 		</li>
 	</template>
 
+	<!-- SortableJS 1.15.7 (MIT), vendorizado: la app funciona sin conexión y sin paso de build. -->
+	<script src="js/vendor/Sortable.min.js"></script>
 	<script type="module" src="js/app.js"></script>
 </body>
 

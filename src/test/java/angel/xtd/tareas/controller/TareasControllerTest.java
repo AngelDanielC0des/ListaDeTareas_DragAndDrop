@@ -1,5 +1,9 @@
 package angel.xtd.tareas.controller;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
@@ -8,12 +12,14 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.util.List;
+import java.util.Map;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -23,7 +29,9 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import angel.xtd.tareas.dto.Fondo;
 import angel.xtd.tareas.dto.Tarea;
+import angel.xtd.tareas.error.OrdenInvalidoException;
 import angel.xtd.tareas.error.TareaNoEncontradaException;
 import angel.xtd.tareas.service.TareasService;
 
@@ -90,6 +98,14 @@ class TareasControllerTest {
 	}
 
 	@Test
+	@DisplayName("PATCH sin el campo completada responde 400")
+	void rechazaCompletadaAusente() throws Exception {
+		this.mockMvc.perform(patch("/tarea/1/completada").contentType(MediaType.APPLICATION_JSON).content("{}"))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.errores.completada").exists());
+	}
+
+	@Test
 	@DisplayName("DELETE de una tarea existente responde 204")
 	void eliminaTarea() throws Exception {
 		this.mockMvc.perform(delete("/tarea/1")).andExpect(status().isNoContent());
@@ -110,6 +126,49 @@ class TareasControllerTest {
 	}
 
 	@Test
+	@DisplayName("PUT /tarea/orden aplica el nuevo orden")
+	void reordena() throws Exception {
+		given(this.servicio.reordenar(anyList()))
+			.willReturn(List.of(new Tarea(3, "Tres", false), new Tarea(1, "Uno", false)));
+
+		this.mockMvc
+			.perform(put("/tarea/orden").contentType(MediaType.APPLICATION_JSON).content("{\"ids\":[3,1]}"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$[0].id").value(3))
+			.andExpect(jsonPath("$[1].id").value(1));
+	}
+
+	@Test
+	@DisplayName("/tarea/orden no se confunde con /tarea/{id}")
+	void laRutaOrdenTienePrioridadSobreLaPlantilla() throws Exception {
+		given(this.servicio.reordenar(anyList())).willReturn(List.of());
+
+		this.mockMvc.perform(put("/tarea/orden").contentType(MediaType.APPLICATION_JSON).content("{\"ids\":[1]}"))
+			.andExpect(status().isOk());
+
+		then(this.servicio).should().reordenar(List.of(1));
+		then(this.servicio).should(org.mockito.Mockito.never()).actualizar(anyInt(), anyString(), anyBoolean());
+	}
+
+	@Test
+	@DisplayName("un orden inválido se traduce a 409")
+	void traduceOrdenInvalidoA409() throws Exception {
+		given(this.servicio.reordenar(anyList())).willThrow(new OrdenInvalidoException("ids desconocidos"));
+
+		this.mockMvc.perform(put("/tarea/orden").contentType(MediaType.APPLICATION_JSON).content("{\"ids\":[1,2]}"))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.title").value("Orden inválido"));
+	}
+
+	@Test
+	@DisplayName("PUT /tarea/orden con la lista vacía responde 400")
+	void rechazaOrdenVacio() throws Exception {
+		this.mockMvc.perform(put("/tarea/orden").contentType(MediaType.APPLICATION_JSON).content("{\"ids\":[]}"))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.errores.ids").exists());
+	}
+
+	@Test
 	@DisplayName("un id que no es un número responde 400 en lugar de 500")
 	void traduceIdNoNumericoA400() throws Exception {
 		this.mockMvc.perform(get("/tarea/abc")).andExpect(status().isBadRequest());
@@ -122,6 +181,14 @@ class TareasControllerTest {
 			.andExpect(status().isBadRequest());
 	}
 
+	@Test
+	@DisplayName("GET /tarea/configuracion expone el límite de caracteres del servidor")
+	void exponeLaConfiguracion() throws Exception {
+		this.mockMvc.perform(get("/tarea/configuracion"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.maxCaracteresTexto").value(Tarea.MAX_CARACTERES_TEXTO));
+	}
+
 	/**
 	 * Regresión: el manejador de errores llegó a tener un {@code @ExceptionHandler(Exception.class)}
 	 * con prioridad máxima, lo que dejaba sin ejecutar al de Spring Boot y convertía este 405 en un
@@ -130,7 +197,7 @@ class TareasControllerTest {
 	@Test
 	@DisplayName("un método no soportado responde 405, no 500")
 	void devuelve405ConMetodoNoSoportado() throws Exception {
-		this.mockMvc.perform(patch("/tarea").contentType(MediaType.APPLICATION_JSON).content("{}"))
+		this.mockMvc.perform(post("/tarea/1").contentType(MediaType.APPLICATION_JSON).content("{}"))
 			.andExpect(status().isMethodNotAllowed());
 	}
 
@@ -139,6 +206,61 @@ class TareasControllerTest {
 	void devuelve415ConTipoDeContenidoNoJson() throws Exception {
 		this.mockMvc.perform(post("/tarea").contentType(MediaType.TEXT_PLAIN).content("Repasar HTML"))
 			.andExpect(status().isUnsupportedMediaType());
+	}
+
+	@Test
+	@DisplayName("GET /tarea/fondo devuelve el mapa de fondos")
+	void devuelveLosFondos() throws Exception {
+		given(this.servicio.consultarFondos()).willReturn(Map.of(1, Fondo.ONDAS, 4, Fondo.AURORA));
+
+		this.mockMvc.perform(get("/tarea/fondo"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.1").value("ondas"))
+			.andExpect(jsonPath("$.4").value("aurora"));
+	}
+
+	@Test
+	@DisplayName("PUT /tarea/{id}/fondo asigna el fondo y devuelve el mapa actualizado")
+	void cambiaElFondo() throws Exception {
+		given(this.servicio.consultarFondos()).willReturn(Map.of(1, Fondo.PAPEL));
+
+		this.mockMvc
+			.perform(put("/tarea/1/fondo").contentType(MediaType.APPLICATION_JSON).content("{\"fondo\":\"papel\"}"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.1").value("papel"));
+
+		then(this.servicio).should().cambiarFondo(1, Fondo.PAPEL);
+	}
+
+	@Test
+	@DisplayName("un fondo que no existe responde 400, no 500")
+	void rechazaUnFondoDesconocido() throws Exception {
+		this.mockMvc
+			.perform(put("/tarea/1/fondo").contentType(MediaType.APPLICATION_JSON)
+				.content("{\"fondo\":\"purpurina\"}"))
+			.andExpect(status().isBadRequest());
+
+		then(this.servicio).should(org.mockito.Mockito.never()).cambiarFondo(anyInt(), any());
+	}
+
+	@Test
+	@DisplayName("cambiar el fondo de una tarea que no existe responde 404")
+	void fondoDeTareaInexistenteDa404() throws Exception {
+		willThrow(new TareaNoEncontradaException(99)).given(this.servicio).cambiarFondo(anyInt(), any());
+
+		this.mockMvc
+			.perform(put("/tarea/99/fondo").contentType(MediaType.APPLICATION_JSON).content("{\"fondo\":\"ondas\"}"))
+			.andExpect(status().isNotFound());
+	}
+
+	@Test
+	@DisplayName("/tarea/fondo no se confunde con /tarea/{id}")
+	void laRutaFondoTienePrioridadSobreLaPlantilla() throws Exception {
+		given(this.servicio.consultarFondos()).willReturn(Map.of());
+
+		this.mockMvc.perform(get("/tarea/fondo")).andExpect(status().isOk());
+
+		then(this.servicio).should(org.mockito.Mockito.never()).consultarPorId(anyInt());
 	}
 
 }

@@ -113,7 +113,56 @@ export function actualizarTarea(id, texto, completada) {
 	return resultado;
 }
 
+export function cambiarCompletada(id, completada) {
+	const resultado = realizarPeticion(`${RUTA_BASE}/${id}/completada`, { method: 'PATCH', cuerpo: { completada } });
+	return resultado;
+}
+
 export function eliminarTarea(id) {
 	const resultado = realizarPeticion(`${RUTA_BASE}/${id}`, { method: 'DELETE' });
+	return resultado;
+}
+
+/**
+ * Borra una tarea cuando la pestaña se está cerrando.
+ *
+ * Va aparte del `eliminarTarea` normal por dos motivos: `keepalive` deja que la petición sobreviva a
+ * la descarga de la página, y aquí no se puede esperar la respuesta ni enseñar un error, porque ya
+ * no habrá nadie mirando. Por eso no lanza: como mucho, el borrado no llega y la tarea sigue ahí.
+ */
+export function eliminarTareaAlSalir(id) {
+	try {
+		fetch(`${RUTA_BASE}/${id}`, { method: 'DELETE', keepalive: true });
+	}
+	catch {
+		// La página se está cerrando: no hay nada que se pueda hacer ni a quién avisar.
+	}
+}
+
+export function reordenarTareas(ids) {
+	const resultado = realizarPeticion(`${RUTA_BASE}/orden`, { method: 'PUT', cuerpo: { ids } });
+	return resultado;
+}
+
+/**
+ * Qué fondo tiene cada tarea, en un solo objeto {id: fondo}.
+ *
+ * Va aparte de la lista de tareas porque una tarea son tres campos y así se queda: el fondo es
+ * decoración y vive en su propio archivo del servidor.
+ */
+export function consultarFondos() {
+	const resultado = realizarPeticion(`${RUTA_BASE}/fondo`);
+	return resultado;
+}
+
+/** Devuelve el mapa completo ya actualizado, para no tener que recomponerlo en el cliente. */
+export function cambiarFondo(id, fondo) {
+	const resultado = realizarPeticion(`${RUTA_BASE}/${id}/fondo`, { method: 'PUT', cuerpo: { fondo } });
+	return resultado;
+}
+
+/** Límites que dicta el servidor, para no repetir el número máximo de caracteres en el navegador. */
+export function consultarConfiguracion() {
+	const resultado = realizarPeticion(`${RUTA_BASE}/configuracion`);
 	return resultado;
 }
