@@ -35,6 +35,9 @@ public class TareasService {
 
 	private static final Logger log = LoggerFactory.getLogger(TareasService.class);
 
+	/** Valor con el que arranca la búsqueda de posición, para distinguir «todavía no encontrada». */
+	private static final int POSICION_NO_ENCONTRADA = -1;
+
 	private final AlmacenTareas almacen;
 
 	private final AlmacenFondos fondos;
@@ -152,7 +155,9 @@ public class TareasService {
 			tareas.addAll(reordenadas);
 			return List.copyOf(tareas);
 		});
-		this.fondos.conservarSolo(idsEnOrden);
+		// Aquí NO se llama a conservarSolo: validarQueEsPermutacionExacta ya garantiza que los ids
+		// recibidos son exactamente los que hay, así que no puede sobrar ninguno. Sería recorrer la
+		// lista entera para no borrar nunca nada.
 		log.info("reordenar() -> nuevo orden de ids {}", idsEnOrden);
 		return resultado;
 	}
@@ -205,19 +210,34 @@ public class TareasService {
 	 *
 	 * <p>Búsqueda lineal: con listas de tareas es más rápida que cualquier índice, y no hay que
 	 * mantenerla al reordenar.
+	 *
+	 * <p>El bucle no sale por el medio con un {@code return}: acumula el resultado en una variable y
+	 * corta por la condición, que es la convención que sigue el resto del proyecto —«el valor de
+	 * retorno pasa por una variable»— y deja un único punto de salida que es fácil de instrumentar.
 	 */
 	private int buscarPosicionDeTarea(List<Tarea> tareas, int id) {
-		for (int posicion = 0; posicion < tareas.size(); posicion++) {
+		int resultado = POSICION_NO_ENCONTRADA;
+		for (int posicion = 0; posicion < tareas.size() && resultado == POSICION_NO_ENCONTRADA; posicion++) {
 			if (tareas.get(posicion).id() == id) {
-				return posicion;
+				resultado = posicion;
 			}
 		}
-		throw new TareaNoEncontradaException(id);
+
+		if (resultado == POSICION_NO_ENCONTRADA) {
+			throw new TareaNoEncontradaException(id);
+		}
+		return resultado;
 	}
 
 	/** Quita espacios sobrantes de los extremos; {@code @NotBlank} ya ha descartado el texto vacío. */
 	private String normalizarTexto(String texto) {
-		String resultado = (texto == null) ? "" : texto.strip();
+		String resultado;
+		if (texto == null) {
+			resultado = "";
+		}
+		else {
+			resultado = texto.strip();
+		}
 		return resultado;
 	}
 

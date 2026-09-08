@@ -25,13 +25,17 @@ const TEMA_SISTEMA = 'sistema';
 const TEMAS_VALIDOS = ['claro', 'oscuro', TEMA_SISTEMA];
 
 export function leerTema() {
+	let resultado = TEMA_SISTEMA;
 	try {
 		const guardado = localStorage.getItem(CLAVE_TEMA);
-		return TEMAS_VALIDOS.includes(guardado) ? guardado : TEMA_SISTEMA;
+		if (TEMAS_VALIDOS.includes(guardado)) {
+			resultado = guardado;
+		}
 	}
 	catch {
-		return TEMA_SISTEMA;
+		// Ventana privada o datos del sitio bloqueados: se queda el valor por defecto.
 	}
+	return resultado;
 }
 
 export function guardarTema(tema) {

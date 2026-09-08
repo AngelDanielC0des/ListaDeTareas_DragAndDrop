@@ -257,4 +257,24 @@ class TareasServiceTest {
 		assertThat(servicioReiniciado.consultarFondos()).containsOnlyKeys(uno.id());
 	}
 
+	/**
+	 * El servicio olvida el fondo al borrar la tarea. Estaba probado que {@code AlmacenFondos} sabe
+	 * olvidar, pero no que alguien se lo pidiera: si se cayera esa llamada, el archivo de fondos
+	 * acumularía tareas inexistentes y un id reutilizado tras reiniciar heredaría un fondo que nadie
+	 * eligió, que es justo lo que la llamada evita.
+	 */
+	@Test
+	@DisplayName("borrar una tarea olvida también el fondo que tenía")
+	void borrarUnaTareaOlvidaSuFondo() {
+		Tarea tarea = this.servicio.crear("Con fondo");
+		this.servicio.cambiarFondo(tarea.id(), Fondo.ONDAS);
+		assertThat(this.servicio.consultarFondos()).containsKey(tarea.id());
+
+		this.servicio.eliminar(tarea.id());
+
+		assertThat(this.servicio.consultarFondos())
+			.as("el fondo de una tarea borrada no debe sobrevivir")
+			.doesNotContainKey(tarea.id());
+	}
+
 }

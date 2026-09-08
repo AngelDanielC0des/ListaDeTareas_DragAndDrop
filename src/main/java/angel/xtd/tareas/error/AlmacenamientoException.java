@@ -14,4 +14,9 @@ public class AlmacenamientoException extends RuntimeException {
 		super(mensaje, causa);
 	}
 
+	/** Para los fallos que detecta el propio almacén y no vienen de envolver otra excepción. */
+	public AlmacenamientoException(String mensaje) {
+		super(mensaje);
+	}
+
 }

@@ -5,6 +5,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
+import java.util.regex.MatchResult;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -21,6 +25,15 @@ class RecursosEstaticosTest {
 	private static final String RUTA_INDEX = "static/index.html";
 
 	private static final String RUTA_CSS = "static/css/estilos.css";
+
+	/** La etiqueta de apertura de cada SVG, para poder comprobarlas una a una y no en bloque. */
+	private static final Pattern ETIQUETA_SVG = Pattern.compile("<svg[^>]*>");
+
+	/** Los comentarios del HTML, que hablan de {@code <svg>} sin ser ninguno. */
+	private static final Pattern COMENTARIO_HTML = Pattern.compile("<!--.*?-->", Pattern.DOTALL);
+
+	/** La clave de localStorage tal y como la escribe el script en línea del HTML. */
+	private static final Pattern CLAVE_DEL_TEMA = Pattern.compile("localStorage\\.getItem\\('([^']+)'\\)");
 
 	/**
 	 * Se lee del classpath y no del sistema de archivos: por ruta relativa, la prueba dependería del
@@ -113,13 +126,45 @@ class RecursosEstaticosTest {
 	@Test
 	@DisplayName("todos los iconos están ocultos para los lectores de pantalla")
 	void losIconosSonDecorativos() throws IOException {
-		String html = leerIndex();
+		List<String> etiquetasSvg = buscarEtiquetasSvg(leerIndex());
 
-		int iconos = html.split("<svg", -1).length - 1;
-		int ocultos = html.split("aria-hidden=\"true\"", -1).length - 1;
+		assertThat(etiquetasSvg).as("debe haber iconos que comprobar").isNotEmpty();
+		assertThat(etiquetasSvg)
+			.as("cada <svg> debe llevar su propio aria-hidden, no vale que sumen otros elementos")
+			.allSatisfy((etiqueta) -> assertThat(etiqueta).contains("aria-hidden=\"true\""));
+	}
 
-		assertThat(iconos).as("debe haber iconos que comprobar").isPositive();
-		assertThat(ocultos).as("cada <svg> debe llevar aria-hidden").isGreaterThanOrEqualTo(iconos);
+	/**
+	 * Sin esto, la prueba de arriba pasaría en falso el día que el patrón dejara de encontrar nada.
+	 *
+	 * <p>Su versión anterior contaba apariciones de {@code <svg} y de {@code aria-hidden} en todo el
+	 * archivo y comparaba las dos cifras. Como hay otros elementos con {@code aria-hidden} —el
+	 * {@code <progress>} y el símbolo del asa en el pie—, sobraban dos, y con esa holgura un icono
+	 * podía perder el atributo sin que la prueba se enterase.
+	 */
+	@Test
+	@DisplayName("el patrón encuentra cada etiqueta <svg> por separado")
+	void elPatronDeIconosEncuentraCadaEtiqueta() {
+		String html = "<!-- el <svg aria-hidden> del comentario no cuenta -->"
+				+ "<svg class=\"a\" aria-hidden=\"true\"><path/></svg><svg class=\"b\"></svg>";
+
+		List<String> etiquetas = buscarEtiquetasSvg(html);
+
+		assertThat(etiquetas).as("los comentarios no son elementos").hasSize(2);
+		assertThat(etiquetas.get(1)).as("debe poder detectar un svg SIN aria-hidden")
+			.doesNotContain("aria-hidden");
+	}
+
+	/**
+	 * Las etiquetas {@code <svg>} de verdad, sin las que solo se nombran en un comentario.
+	 *
+	 * <p>Los comentarios se quitan antes de buscar porque el HTML explica en uno de ellos que «el
+	 * signo va en un {@code <svg aria-hidden>}», y esa frase se colaba como si fuera un icono real.
+	 */
+	private List<String> buscarEtiquetasSvg(String html) {
+		String sinComentarios = COMENTARIO_HTML.matcher(html).replaceAll("");
+		List<String> resultado = ETIQUETA_SVG.matcher(sinComentarios).results().map(MatchResult::group).toList();
+		return resultado;
 	}
 
 	@Test
@@ -132,14 +177,23 @@ class RecursosEstaticosTest {
 		}
 	}
 
+	/**
+	 * La clave está escrita en dos sitios —el script en línea del HTML y {@code preferencias.js}— y no
+	 * se puede unificar: el script tiene que correr antes de que se cargue ningún módulo. Lo que sí se
+	 * puede es no dejar la duplicación sin vigilancia.
+	 *
+	 * <p>La clave se extrae del HTML en lugar de repetirla aquí: si se escribiera a mano, cambiar los
+	 * dos archivos y olvidar la prueba la dejaría comprobando una cadena que ya no usa nadie.
+	 */
 	@Test
-	@DisplayName("la clave de localStorage del tema coincide en el HTML y en preferencias.js")
-	void claveTemaConsistente() throws IOException {
-		String html = leerIndex();
-		String preferencias = leerRecurso("static/js/preferencias.js");
+	@DisplayName("la clave de localStorage del tema es la misma en el HTML y en preferencias.js")
+	void laClaveDelTemaCoincideEnLosDosArchivos() throws IOException {
+		Matcher clave = CLAVE_DEL_TEMA.matcher(leerIndex());
 
-		assertThat(html).contains("localStorage.getItem('tareas.tema')");
-		assertThat(preferencias).contains("tareas.tema");
+		assertThat(clave.find()).as("el script en línea debe leer la preferencia de localStorage").isTrue();
+		assertThat(leerRecurso("static/js/preferencias.js"))
+			.as("preferencias.js debe usar la misma clave «%s» que el HTML", clave.group(1))
+			.contains("'" + clave.group(1) + "'");
 	}
 
 }

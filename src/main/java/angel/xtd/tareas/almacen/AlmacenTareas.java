@@ -1,11 +1,6 @@
 package angel.xtd.tareas.almacen;
 
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.AtomicMoveNotSupportedException;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -22,7 +17,6 @@ import angel.xtd.tareas.config.PropiedadesAlmacen;
 import angel.xtd.tareas.dto.Tarea;
 import angel.xtd.tareas.error.AlmacenamientoException;
 import jakarta.annotation.PostConstruct;
-import tools.jackson.core.JacksonException;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
 
@@ -71,15 +65,11 @@ public class AlmacenTareas {
 
 	private static final Logger log = LoggerFactory.getLogger(AlmacenTareas.class);
 
-	private static final String SUFIJO_TEMPORAL = ".tmp";
-
 	/** Se declara una sola vez: instanciarlo en cada carga crearía una clase anónima por llamada. */
 	private static final TypeReference<List<Tarea>> TIPO_LISTA_DE_TAREAS = new TypeReference<>() {
 	};
 
-	private final ObjectMapper mapeadorJson;
-
-	private final Path archivo;
+	private final ArchivoJsonAtomico archivo;
 
 	private final ReentrantReadWriteLock cerrojo = new ReentrantReadWriteLock();
 
@@ -90,8 +80,7 @@ public class AlmacenTareas {
 	private int siguienteId = Tarea.PRIMER_ID;
 
 	public AlmacenTareas(ObjectMapper mapeadorJson, PropiedadesAlmacen propiedades) {
-		this.mapeadorJson = mapeadorJson;
-		this.archivo = Path.of(propiedades.ruta()).toAbsolutePath().normalize();
+		this.archivo = new ArchivoJsonAtomico(mapeadorJson, Path.of(propiedades.ruta()), "tareas");
 	}
 
 	/**
@@ -105,23 +94,25 @@ public class AlmacenTareas {
 	public void cargarDesdeArchivo() {
 		this.cerrojo.writeLock().lock();
 		try {
-			if (!Files.exists(this.archivo)) {
-				log.info("No existe {}; se arranca con la lista vacía", this.archivo);
-				return;
+			if (!this.archivo.existe()) {
+				log.info("No existe {}; se arranca con la lista vacía", this.archivo.ruta());
 			}
-			String json = Files.readString(this.archivo, StandardCharsets.UTF_8);
-			List<Tarea> leidas = json.isBlank() ? List.of() : this.mapeadorJson.readValue(json, TIPO_LISTA_DE_TAREAS);
+			else {
+				List<Tarea> leidas = this.archivo.leer(TIPO_LISTA_DE_TAREAS, List.of());
 
-			this.tareas.clear();
-			this.tareas.addAll(leidas);
-			validarIdsUnicos(leidas);
-			this.siguienteId = calcularSiguienteId(leidas);
+				// Se valida ANTES de tocar la lista: si el archivo trae ids repetidos y se hubiera
+				// cargado primero, el almacén se quedaría con datos que el resto del código da por
+				// imposibles, y cargarDesdeArchivo() es público (las pruebas lo usan para simular un
+				// reinicio), así que ese estado a medias sería observable.
+				validarIdsUnicos(leidas);
 
-			log.info("Cargadas {} tareas desde {} (siguiente id = {})", this.tareas.size(), this.archivo,
-					this.siguienteId);
-		}
-		catch (IOException | JacksonException excepcion) {
-			throw new AlmacenamientoException("No se pudo leer el archivo de tareas: " + this.archivo, excepcion);
+				this.tareas.clear();
+				this.tareas.addAll(leidas);
+				this.siguienteId = calcularSiguienteId(leidas);
+
+				log.info("Cargadas {} tareas desde {} (siguiente id = {})", this.tareas.size(),
+						this.archivo.ruta(), this.siguienteId);
+			}
 		}
 		finally {
 			this.cerrojo.writeLock().unlock();
@@ -208,29 +199,8 @@ public class AlmacenTareas {
 	 * muere a mitad de la escritura, el archivo bueno sigue intacto en lugar de quedar truncado.
 	 */
 	private void guardarEnArchivo() {
-		Path temporal = this.archivo.resolveSibling(this.archivo.getFileName().toString() + SUFIJO_TEMPORAL);
-		try {
-			Files.createDirectories(this.archivo.getParent());
-			String json = this.mapeadorJson.writerWithDefaultPrettyPrinter().writeValueAsString(this.tareas);
-			Files.writeString(temporal, json, StandardCharsets.UTF_8);
-			moverSobrescribiendo(temporal, this.archivo);
-		}
-		catch (IOException | JacksonException excepcion) {
-			throw new AlmacenamientoException("No se pudo guardar el archivo de tareas: " + this.archivo, excepcion);
-		}
-		finally {
-			try { Files.deleteIfExists(temporal); } catch (IOException ignored) {}
-		}
-	}
-
-	private void moverSobrescribiendo(Path temporal, Path destino) throws IOException {
-		try {
-			Files.move(temporal, destino, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-		}
-		catch (AtomicMoveNotSupportedException excepcion) {
-			log.warn("El sistema de archivos no admite movimiento atómico; se reemplaza sin atomicidad");
-			Files.move(temporal, destino, StandardCopyOption.REPLACE_EXISTING);
-		}
+		this.archivo.guardar(this.tareas);
+		log.debug("Guardadas {} tareas en {}", this.tareas.size(), this.archivo.ruta());
 	}
 
 	private int calcularSiguienteId(List<Tarea> leidas) {
@@ -239,12 +209,24 @@ public class AlmacenTareas {
 		return resultado;
 	}
 
-	private void validarIdsUnicos(List<Tarea> tareas) {
-		Set<Integer> vistos = new HashSet<>();
-		for (Tarea tarea : tareas) {
-			if (!vistos.add(tarea.id())) {
-				throw new IllegalStateException(
-					"El archivo contiene ids repetidos: " + tarea.id());
+	/**
+	 * Rechaza un archivo con ids repetidos.
+	 *
+	 * <p>En la frontera HTTP todo lo valida {@code @Valid}; en la del archivo no lo validaba nadie, y
+	 * el resto del código da por hecho que el id es único. Con dos tareas del mismo id, el
+	 * {@code Collectors.toMap} de {@code reordenar} lanzaba un {@code IllegalStateException} que
+	 * salía como un 500 en la primera reordenación, muy lejos de la causa real.
+	 *
+	 * <p>Se lanza {@link AlmacenamientoException} y no una excepción genérica para ser coherente con
+	 * los otros dos fallos de esta misma clase: todo lo que impide usar el archivo se comunica igual.
+	 */
+	private void validarIdsUnicos(List<Tarea> leidas) {
+		Set<Integer> idsVistos = new HashSet<>();
+		for (Tarea tarea : leidas) {
+			boolean esNuevo = idsVistos.add(tarea.id());
+			if (!esNuevo) {
+				throw new AlmacenamientoException(
+						"El archivo %s contiene el id %d más de una vez".formatted(this.archivo.ruta(), tarea.id()));
 			}
 		}
 	}

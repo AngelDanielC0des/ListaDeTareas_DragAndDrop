@@ -33,8 +33,16 @@ let edicionEnCurso = null;
  */
 let fondosPorTarea = {};
 
+/**
+ * El valor con el que el servidor representa «esta tarjeta no lleva fondo».
+ *
+ * Vive aquí y no en `vista.js` porque es un valor del protocolo, no de presentación: es lo que
+ * viaja en el JSON y lo que devuelve `obtenerFondoDe` cuando una tarea no tiene ninguno.
+ */
+export const SIN_FONDO = 'ninguno';
+
 export function obtenerFondoDe(id) {
-	const resultado = fondosPorTarea[id] ?? 'ninguno';
+	const resultado = fondosPorTarea[id] ?? SIN_FONDO;
 	return resultado;
 }
 
@@ -42,8 +50,16 @@ export function reemplazarFondos(nuevos) {
 	fondosPorTarea = { ...nuevos };
 }
 
+/**
+ * Devuelve la lista para LEERLA. No la copies aquí: `pintarLista()` y `actualizarResumen()` la piden
+ * en cada repintado y en cada actualización de una sola tarjeta, así que copiar costaría O(n) por
+ * pulsación de casilla sin que nadie lo aproveche.
+ *
+ * Quien necesite mutarla tiene `copiarTareas()`, que existe justo para eso.
+ */
 export function obtenerTareas() {
-	return [...tareas];
+	const resultado = tareas;
+	return resultado;
 }
 
 export function reemplazarTareas(nuevas) {
@@ -111,12 +127,20 @@ export function quitarTarea(id) {
 
 /** Mueve una tarea de una posición a otra. Es la operación que produce el nuevo orden. */
 export function moverTareaDePosicion(desde, hasta) {
-	if (desde === hasta || desde < 0 || hasta < 0 || desde >= tareas.length || hasta >= tareas.length) {
-		return false;
+	const esMovimientoValido = desde !== hasta
+		&& desde >= 0 && hasta >= 0
+		&& desde < tareas.length && hasta < tareas.length;
+
+	let resultado;
+	if (esMovimientoValido) {
+		const [movida] = tareas.splice(desde, 1);
+		tareas.splice(hasta, 0, movida);
+		resultado = true;
 	}
-	const [movida] = tareas.splice(desde, 1);
-	tareas.splice(hasta, 0, movida);
-	return true;
+	else {
+		resultado = false;
+	}
+	return resultado;
 }
 
 export function obtenerIdsEnOrden() {

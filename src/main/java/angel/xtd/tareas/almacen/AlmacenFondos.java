@@ -1,15 +1,10 @@
 package angel.xtd.tareas.almacen;
 
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.AtomicMoveNotSupportedException;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 import java.util.TreeMap;
 
@@ -19,9 +14,7 @@ import org.springframework.stereotype.Component;
 
 import angel.xtd.tareas.config.PropiedadesAlmacen;
 import angel.xtd.tareas.dto.Fondo;
-import angel.xtd.tareas.error.AlmacenamientoException;
 import jakarta.annotation.PostConstruct;
-import tools.jackson.core.JacksonException;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
 
@@ -46,46 +39,45 @@ public class AlmacenFondos {
 
 	private static final Logger log = LoggerFactory.getLogger(AlmacenFondos.class);
 
-	private static final String SUFIJO_TEMPORAL = ".tmp";
-
 	private static final TypeReference<Map<Integer, Fondo>> TIPO_MAPA_DE_FONDOS = new TypeReference<>() {
 	};
 
-	private final ObjectMapper mapeadorJson;
-
-	private final Path archivo;
+	private final ArchivoJsonAtomico archivo;
 
 	/** Id de la tarea al fondo elegido. Solo aparecen las tareas que tienen uno. */
 	private final Map<Integer, Fondo> fondosPorTarea = new TreeMap<>();
 
 	public AlmacenFondos(ObjectMapper mapeadorJson, PropiedadesAlmacen propiedades) {
-		this.mapeadorJson = mapeadorJson;
-		this.archivo = Path.of(propiedades.rutaDeFondos()).toAbsolutePath().normalize();
+		this.archivo = new ArchivoJsonAtomico(mapeadorJson, Path.of(propiedades.rutaDeFondos()), "fondos");
 	}
 
 	@PostConstruct
 	public synchronized void cargarDesdeArchivo() {
-		try {
-			if (!Files.exists(this.archivo)) {
-				log.info("No existe {}; ninguna tarea tiene fondo todavía", this.archivo);
-				return;
-			}
-			String json = Files.readString(this.archivo, StandardCharsets.UTF_8);
-			if (!json.isBlank()) {
-				this.fondosPorTarea.clear();
-				this.fondosPorTarea.putAll(this.mapeadorJson.readValue(json, TIPO_MAPA_DE_FONDOS));
-			}
-			log.info("Cargados {} fondos desde {}", this.fondosPorTarea.size(), this.archivo);
+		if (!this.archivo.existe()) {
+			log.info("No existe {}; ninguna tarea tiene fondo todavía", this.archivo.ruta());
 		}
-		catch (IOException | JacksonException excepcion) {
-			throw new AlmacenamientoException("No se pudo leer el archivo de fondos: " + this.archivo, excepcion);
+		else {
+			Map<Integer, Fondo> leidos = this.archivo.leer(TIPO_MAPA_DE_FONDOS, Map.of());
+
+			// El clear va fuera del «si el archivo trae algo»: recargar sobre un archivo que se ha
+			// quedado vacío tiene que dejar el mapa vacío, no conservar lo de la carga anterior. Es
+			// el mismo orden que sigue AlmacenTareas.
+			this.fondosPorTarea.clear();
+			this.fondosPorTarea.putAll(leidos);
+			log.info("Cargados {} fondos desde {}", this.fondosPorTarea.size(), this.archivo.ruta());
 		}
 	}
 
-	/** Copia inmutable, para que nadie modifique el mapa interno por la puerta de atrás. */
+	/**
+	 * Copia inmutable, para que nadie modifique el mapa interno por la puerta de atrás.
+	 *
+	 * <p>Se copia a otro {@link TreeMap} en vez de usar {@code Map.copyOf}: ese devuelve un mapa sin
+	 * orden garantizado, con lo que la ordenación por id —que es justo para lo que se eligió un
+	 * árbol— se perdía en el único punto por el que los fondos salen de la clase.
+	 */
 	public synchronized Map<Integer, Fondo> consultarTodos() {
-		Map<Integer, Fondo> resultado = new TreeMap<>(this.fondosPorTarea);
-		return java.util.Collections.unmodifiableMap(resultado);
+		Map<Integer, Fondo> resultado = Collections.unmodifiableMap(new TreeMap<>(this.fondosPorTarea));
+		return resultado;
 	}
 
 	/**
@@ -95,32 +87,60 @@ public class AlmacenFondos {
 	 * archivo se llene de tareas sin fondo.
 	 */
 	public synchronized void asignar(int idDeTarea, Fondo fondo) {
-		Fondo anterior = (fondo == Fondo.NINGUNO) ? this.fondosPorTarea.remove(idDeTarea)
-				: this.fondosPorTarea.put(idDeTarea, fondo);
-
-		if (Objects.equals(anterior, fondo) || (fondo == Fondo.NINGUNO && anterior == null)) {
-			log.debug("asignar({}, {}) -> sin cambios", idDeTarea, fondo);
-			return;
+		Fondo anterior = this.fondosPorTarea.get(idDeTarea);
+		Fondo deseado;
+		if (fondo == Fondo.NINGUNO) {
+			// «Ninguno» se guarda como ausencia de entrada, no como un valor: así el archivo no se
+			// llena de tareas que no tienen fondo.
+			deseado = null;
+		}
+		else {
+			deseado = fondo;
 		}
 
-		guardarDeshaciendoSiFalla(() -> restaurar(idDeTarea, anterior));
-		log.debug("asignar({}, {})", idDeTarea, fondo);
+		// Se comprueba ANTES de tocar el mapa. Hacerlo al revés —mutar y después decidir que no
+		// hacía falta— funciona, pero obliga a razonar hacia atrás para convencerse de que el mapa
+		// queda bien, y basta con reordenar dos líneas para no tener que hacerlo.
+		if (deseado == anterior) {
+			log.debug("asignar({}, {}) -> ya estaba así, no se reescribe el archivo", idDeTarea, fondo);
+		}
+		else {
+			if (deseado == null) {
+				this.fondosPorTarea.remove(idDeTarea);
+			}
+			else {
+				this.fondosPorTarea.put(idDeTarea, deseado);
+			}
+			guardarDeshaciendoSiFalla(() -> restaurar(idDeTarea, anterior));
+			log.debug("asignar({}, {})", idDeTarea, fondo);
+		}
 	}
 
 	/** Se llama al borrar una tarea, para que no queden fondos de tareas inexistentes. */
 	public synchronized void olvidar(int idDeTarea) {
-		if (!this.fondosPorTarea.containsKey(idDeTarea)) {
-			return;
-		}
 		Fondo anterior = this.fondosPorTarea.remove(idDeTarea);
-		guardarDeshaciendoSiFalla(() -> restaurar(idDeTarea, anterior));
-		log.debug("olvidar({})", idDeTarea);
+		if (anterior == null) {
+			log.debug("olvidar({}) -> no tenía fondo, no se reescribe el archivo", idDeTarea);
+		}
+		else {
+			guardarDeshaciendoSiFalla(() -> restaurar(idDeTarea, anterior));
+			log.debug("olvidar({})", idDeTarea);
+		}
 	}
 
-	/** Descarta los fondos de tareas que ya no existen. Se usa al arrancar y tras reordenar. */
+	/**
+	 * Descarta los fondos de tareas que ya no existen. Se usa <b>solo al arrancar</b>.
+	 *
+	 * <p>No hace falta llamarla al reordenar: reordenar no cambia ningún id —esa es una decisión de
+	 * diseño central del proyecto— así que ahí no puede aparecer ningún fondo huérfano.
+	 *
+	 * <p>Los ids se pasan a un {@link HashSet} antes del {@code retainAll} porque ese método consulta
+	 * la colección una vez por clave: con una {@code List} cada consulta es lineal y el conjunto sale
+	 * cuadrático.
+	 */
 	public synchronized void conservarSolo(Collection<Integer> idsQueExisten) {
-		Set<Integer> conjunto = new HashSet<>(idsQueExisten);
-		boolean cambio = this.fondosPorTarea.keySet().retainAll(conjunto);
+		Set<Integer> idsParaBuscarRapido = new HashSet<>(idsQueExisten);
+		boolean cambio = this.fondosPorTarea.keySet().retainAll(idsParaBuscarRapido);
 		if (cambio) {
 			guardarEnArchivo();
 			log.info("Limpiados los fondos de tareas que ya no existen");
@@ -146,31 +166,9 @@ public class AlmacenFondos {
 		}
 	}
 
-	/** Misma escritura atómica que el almacén de tareas: temporal y movimiento sobre el definitivo. */
 	private void guardarEnArchivo() {
-		Path temporal = this.archivo.resolveSibling(this.archivo.getFileName().toString() + SUFIJO_TEMPORAL);
-		try {
-			Files.createDirectories(this.archivo.getParent());
-			String json = this.mapeadorJson.writerWithDefaultPrettyPrinter().writeValueAsString(this.fondosPorTarea);
-			Files.writeString(temporal, json, StandardCharsets.UTF_8);
-			moverSobrescribiendo(temporal, this.archivo);
-		}
-		catch (IOException | JacksonException excepcion) {
-			throw new AlmacenamientoException("No se pudo guardar el archivo de fondos: " + this.archivo, excepcion);
-		}
-		finally {
-			try { Files.deleteIfExists(temporal); } catch (IOException ignored) {}
-		}
-	}
-
-	private void moverSobrescribiendo(Path temporal, Path destino) throws IOException {
-		try {
-			Files.move(temporal, destino, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-		}
-		catch (AtomicMoveNotSupportedException excepcion) {
-			log.warn("El sistema de archivos no admite movimiento atómico; se reemplaza sin atomicidad");
-			Files.move(temporal, destino, StandardCopyOption.REPLACE_EXISTING);
-		}
+		this.archivo.guardar(this.fondosPorTarea);
+		log.debug("Guardados {} fondos en {}", this.fondosPorTarea.size(), this.archivo.ruta());
 	}
 
 }

@@ -6,7 +6,9 @@ import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
 import java.util.List;
+import java.util.Map;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -51,7 +53,7 @@ class AlmacenFondosTest {
 
 		almacen.asignar(1, Fondo.ONDAS);
 
-		assertThat(almacen.consultarTodos()).containsExactly(java.util.Map.entry(1, Fondo.ONDAS));
+		assertThat(almacen.consultarTodos()).containsExactly(Map.entry(1, Fondo.ONDAS));
 	}
 
 	/**
@@ -161,6 +163,63 @@ class AlmacenFondosTest {
 		almacen.asignar(1, Fondo.ONDAS);
 
 		assertThat(almacen.consultarTodos()).isUnmodifiable();
+	}
+
+	/**
+	 * {@code olvidar} ya evitaba la escritura inútil y {@code asignar} no. Elegir dos veces el mismo
+	 * fondo reescribía el archivo entero, y el selector invita a eso porque muestra el fondo actual
+	 * como una opción más que se puede volver a pulsar.
+	 */
+	@Test
+	@DisplayName("asignar el mismo fondo dos veces no reescribe el archivo")
+	void asignarLoMismoNoReescribe() throws Exception {
+		AlmacenFondos almacen = nuevoAlmacen();
+		almacen.asignar(1, Fondo.ONDAS);
+
+		// Se marca el archivo con una fecha reconocible: si la segunda asignación lo reescribiera, la
+		// fecha cambiaría. Es más fiable que comparar marcas de tiempo reales, que en Windows tienen
+		// poca resolución y podrían coincidir.
+		Files.setLastModifiedTime(this.archivo, FileTime.fromMillis(0));
+
+		almacen.asignar(1, Fondo.ONDAS);
+
+		assertThat(Files.getLastModifiedTime(this.archivo).toMillis())
+			.as("no debería haberse tocado el archivo")
+			.isZero();
+		assertThat(almacen.consultarTodos()).as("y el mapa debe seguir bien")
+			.containsExactly(Map.entry(1, Fondo.ONDAS));
+	}
+
+	/**
+	 * {@code AlmacenTareas} limpia su lista antes de cargar y este hacía {@code putAll} a secas, así
+	 * que una recarga conservaba entradas que el archivo ya no tenía.
+	 */
+	@Test
+	@DisplayName("recargar descarta los fondos que ya no están en el archivo")
+	void recargarDescartaLoViejo() throws Exception {
+		Files.writeString(this.archivo, "{\"1\":\"ondas\",\"2\":\"puntos\"}", StandardCharsets.UTF_8);
+		AlmacenFondos almacen = nuevoAlmacen();
+		assertThat(almacen.consultarTodos()).hasSize(2);
+
+		Files.writeString(this.archivo, "{\"3\":\"papel\"}", StandardCharsets.UTF_8);
+		almacen.cargarDesdeArchivo();
+
+		assertThat(almacen.consultarTodos()).containsExactly(Map.entry(3, Fondo.PAPEL));
+	}
+
+	/**
+	 * El {@code TreeMap} se eligió para que las claves salieran ordenadas. {@code Map.copyOf} devuelve
+	 * un mapa sin orden garantizado, así que esa ventaja se perdía justo al salir de la clase.
+	 */
+	@Test
+	@DisplayName("el mapa que se devuelve conserva el orden por id")
+	void elMapaDevueltoVaOrdenado() {
+		AlmacenFondos almacen = nuevoAlmacen();
+		almacen.asignar(30, Fondo.ONDAS);
+		almacen.asignar(4, Fondo.PAPEL);
+		almacen.asignar(17, Fondo.PUNTOS);
+
+		assertThat(almacen.consultarTodos().keySet()).containsExactly(4, 17, 30);
 	}
 
 }

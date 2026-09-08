@@ -11,6 +11,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -100,21 +101,18 @@ public class ManejadorErroresGlobal extends ResponseEntityExceptionHandler {
 	 */
 	@ExceptionHandler(MethodArgumentTypeMismatchException.class)
 	public ProblemDetail manejarTipoIncorrecto(MethodArgumentTypeMismatchException excepcion) {
-		String tipoEsperado = (excepcion.getRequiredType() == null) ? "válido"
-				: excepcion.getRequiredType().getSimpleName();
+		String tipoEsperado;
+		if (excepcion.getRequiredType() == null) {
+			tipoEsperado = "válido";
+		}
+		else {
+			tipoEsperado = excepcion.getRequiredType().getSimpleName();
+		}
 
 		ProblemDetail resultado = construirProblema(HttpStatus.BAD_REQUEST, "Parámetro inválido",
 				"El parámetro «%s» debe ser de tipo %s.".formatted(excepcion.getName(), tipoEsperado),
 				"parametro-invalido");
 		log.warn("400 Parámetro inválido: {} (se esperaba {})", excepcion.getName(), tipoEsperado);
-		return resultado;
-	}
-
-	@ExceptionHandler(IllegalArgumentException.class)
-	public ProblemDetail manejarArgumentoInvalido(IllegalArgumentException excepcion) {
-		ProblemDetail resultado = construirProblema(HttpStatus.BAD_REQUEST, "Valor no válido",
-				excepcion.getMessage(), "valor-invalido");
-		log.warn("400 Valor no válido: {}", excepcion.getMessage());
 		return resultado;
 	}
 
@@ -165,6 +163,55 @@ public class ManejadorErroresGlobal extends ResponseEntityExceptionHandler {
 
 		log.warn("400 Validación fallida: {}", errores);
 		return respuesta;
+	}
+
+	/**
+	 * Cuerpo que Jackson no ha podido interpretar.
+	 *
+	 * <p>Se sobrescribe por un caso concreto: cuando el cuerpo <b>sí</b> es JSON válido pero trae un
+	 * valor que un {@code enum} no reconoce —por ejemplo {@code {"fondo":"marmol"}}—. Jackson envuelve
+	 * la {@link IllegalArgumentException} del creador en una {@code HttpMessageNotReadableException},
+	 * así que sin esto el cliente recibía «El cuerpo de la petición falta o no es JSON válido», que es
+	 * falso y además no le dice cuáles son los valores buenos.
+	 *
+	 * <p>Solo se rescata el mensaje de una {@code IllegalArgumentException} de la cadena de causas.
+	 * Un {@code @ExceptionHandler(IllegalArgumentException.class)} a secas sería mucho peor: cualquier
+	 * fallo interno que lanzara esa excepción pasaría a ser un {@code 400} con el mensaje interno
+	 * expuesto, culpando al cliente de un error del servidor.
+	 */
+	@Override
+	protected ResponseEntity<Object> handleHttpMessageNotReadable(HttpMessageNotReadableException excepcion,
+			HttpHeaders cabeceras, HttpStatusCode estado, WebRequest peticion) {
+
+		String motivoConcreto = buscarMotivoDeValorInvalido(excepcion);
+
+		ResponseEntity<Object> resultado;
+		if (motivoConcreto == null) {
+			log.warn("400 Cuerpo ilegible: {}", excepcion.getMostSpecificCause().getMessage());
+			resultado = super.handleHttpMessageNotReadable(excepcion, cabeceras, estado, peticion);
+		}
+		else {
+			log.warn("400 Valor no válido: {}", motivoConcreto);
+			resultado = ResponseEntity.badRequest()
+				.body(construirProblema(HttpStatus.BAD_REQUEST, "Valor no válido", motivoConcreto, "valor-invalido"));
+		}
+		return resultado;
+	}
+
+	/**
+	 * Recorre la cadena de causas buscando una {@link IllegalArgumentException} con mensaje propio.
+	 *
+	 * @return el mensaje si lo encuentra, o {@code null} si el cuerpo falla por cualquier otro motivo
+	 */
+	private String buscarMotivoDeValorInvalido(Throwable excepcion) {
+		String resultado = null;
+		for (Throwable causa = excepcion; causa != null && resultado == null; causa = causa.getCause()) {
+			boolean esValorInvalido = (causa instanceof IllegalArgumentException) && (causa.getMessage() != null);
+			if (esValorInvalido) {
+				resultado = causa.getMessage();
+			}
+		}
+		return resultado;
 	}
 
 	private ProblemDetail construirProblema(HttpStatus estado, String titulo, String detalle, String tipo) {

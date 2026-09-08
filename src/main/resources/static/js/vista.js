@@ -121,57 +121,104 @@ export function moverTarjeta(desde, hasta) {
 	}
 	// Al mover hacia abajo, el nodo de destino se «corre» una posición en cuanto se saca el actual,
 	// así que la referencia es el siguiente.
-	const referencia = elementos.lista.children[hasta > desde ? hasta + 1 : hasta] ?? null;
+	let posicionDeReferencia = hasta;
+	if (hasta > desde) {
+		posicionDeReferencia = hasta + 1;
+	}
+	const referencia = elementos.lista.children[posicionDeReferencia] ?? null;
 	elementos.lista.insertBefore(tarjeta, referencia);
 }
 
 function construirTarjeta(tarea, enEdicion) {
-	const tarjeta = elementos.plantilla.content.firstElementChild.cloneNode(true);
-	tarjeta.dataset.id = String(tarea.id);
-	rellenarTarjeta(tarjeta, tarea, enEdicion);
-	return tarjeta;
+	const resultado = elementos.plantilla.content.firstElementChild.cloneNode(true);
+	resultado.dataset.id = String(tarea.id);
+	rellenarTarjeta(resultado, tarea, enEdicion);
+	return resultado;
 }
 
-/** Vuelca una tarea sobre una tarjeta, exista ya o acabe de clonarse. */
+/**
+ * Vuelca una tarea sobre una tarjeta, exista ya o acabe de clonarse.
+ *
+ * Se reparte en cuatro pasos con nombre en lugar de escribirlo todo seguido: cada uno toca una zona
+ * distinta de la tarjeta, y así se puede leer solo el que interesa sin tener que recorrer el resto.
+ */
 function rellenarTarjeta(tarjeta, tarea, enEdicion) {
 	tarjeta.classList.toggle('tarea--completada', tarea.completada);
 	tarjeta.classList.toggle('tarea--desplegada', estado.estaDesplegada(tarea.id));
+	aplicarFondo(tarjeta, estado.obtenerFondoDe(tarea.id));
 
+	rellenarCasilla(tarjeta, tarea);
+	nombrarLosBotones(tarjeta, tarea);
+	rellenarTextoYEditor(tarjeta, tarea);
+	aplicarModoEdicion(tarjeta, enEdicion);
+}
+
+/** La casilla de completada y su etiqueta, que va oculta pero es la que la nombra. */
+function rellenarCasilla(tarjeta, tarea) {
 	const casilla = tarjeta.querySelector('.tarea__casilla');
-	const etiqueta = tarjeta.querySelector('label');
+	const etiqueta = tarjeta.querySelector('.tarea__control-completada label');
+
 	casilla.checked = tarea.completada;
 	casilla.id = `casilla-${tarea.id}`;
 	etiqueta.htmlFor = casilla.id;
-	etiqueta.textContent = tarea.completada ? `Marcar «${tarea.texto}» como pendiente`
-		: `Marcar «${tarea.texto}» como completada`;
 
-	// Cada botón dice de qué tarea es. Sin esto, un lector de pantalla recorre la lista diciendo
-	// «Editar, botón», «Borrar, botón»… sin nombrar nunca la tarea a la que pertenecen.
-	tarjeta.querySelector('.tarea__asa').setAttribute('aria-label', `Mover la tarea «${tarea.texto}»`);
-	tarjeta.querySelector('[data-accion="editar"]').setAttribute('aria-label', `Editar la tarea «${tarea.texto}»`);
-	tarjeta.querySelector('[data-accion="eliminar"]').setAttribute('aria-label', `Borrar la tarea «${tarea.texto}»`);
-	tarjeta.querySelector('[data-accion="fondo"]')
-		.setAttribute('aria-label', `Elegir el fondo de la tarea «${tarea.texto}»`);
+	if (tarea.completada) {
+		etiqueta.textContent = `Marcar «${tarea.texto}» como pendiente`;
+	}
+	else {
+		etiqueta.textContent = `Marcar «${tarea.texto}» como completada`;
+	}
+}
 
-	aplicarFondo(tarjeta, estado.obtenerFondoDe(tarea.id));
+/**
+ * Cada botón dice de qué tarea es.
+ *
+ * Sin esto, un lector de pantalla recorre la lista diciendo «Editar, botón», «Borrar, botón»… sin
+ * nombrar nunca la tarea a la que pertenecen.
+ */
+function nombrarLosBotones(tarjeta, tarea) {
+	const nombresPorSelector = {
+		'.tarea__asa': `Mover la tarea «${tarea.texto}»`,
+		'[data-accion="editar"]': `Editar la tarea «${tarea.texto}»`,
+		'[data-accion="eliminar"]': `Borrar la tarea «${tarea.texto}»`,
+		'[data-accion="fondo"]': `Elegir el fondo de la tarea «${tarea.texto}»`
+	};
 
-	const parrafo = tarjeta.querySelector('.tarea__texto');
-	parrafo.textContent = tarea.texto;
+	for (const [selector, nombre] of Object.entries(nombresPorSelector)) {
+		tarjeta.querySelector(selector).setAttribute('aria-label', nombre);
+	}
+}
+
+/** El párrafo que se ve y el cuadro de edición que hay debajo. */
+function rellenarTextoYEditor(tarjeta, tarea) {
+	tarjeta.querySelector('.tarea__texto').textContent = tarea.texto;
 
 	const editor = tarjeta.querySelector('.tarea__editor');
 	editor.setAttribute('aria-label', 'Editar el texto de la tarea');
 	if (maxCaracteresTexto !== null) {
 		editor.maxLength = maxCaracteresTexto;
 	}
+
 	// Si el usuario está escribiendo AHÍ, pisarle el valor le movería el cursor y le borraría lo que
 	// acabase de teclear. Su texto es más reciente que el del estado.
-	if (editor.value !== tarea.texto && document.activeElement !== editor) {
+	const loEstaEscribiendoAhora = document.activeElement === editor;
+	if (editor.value !== tarea.texto && !loEstaEscribiendoAhora) {
 		editor.value = tarea.texto;
 	}
+}
 
-	parrafo.hidden = enEdicion;
-	editor.hidden = !enEdicion;
-	tarjeta.querySelector('[data-accion="editar"] .tarea__accion-texto').textContent = enEdicion ? 'Listo' : 'Editar';
+/** Alterna entre ver el texto y editarlo. Es lo único que cambia al entrar y salir de la edición. */
+function aplicarModoEdicion(tarjeta, enEdicion) {
+	tarjeta.querySelector('.tarea__texto').hidden = enEdicion;
+	tarjeta.querySelector('.tarea__editor').hidden = !enEdicion;
+
+	const textoDelBoton = tarjeta.querySelector('[data-accion="editar"] .tarea__accion-texto');
+	if (enEdicion) {
+		textoDelBoton.textContent = 'Listo';
+	}
+	else {
+		textoDelBoton.textContent = 'Editar';
+	}
 }
 
 /* --------------------------------------------------------- Recorte del texto */
@@ -194,33 +241,44 @@ function actualizarBotonesVerMas() {
 /** Pasada de LECTURA: solo consulta el DOM, no lo modifica. */
 function medirDesbordamiento(tarjeta) {
 	const parrafo = tarjeta.querySelector('.tarea__texto');
+
+	let resultado;
 	if (parrafo.hidden) {
-		return false;
+		// Mientras se edita, el párrafo no se pinta y sus medidas son cero: no hay nada que recortar.
+		resultado = false;
 	}
-	const resultado = parrafo.scrollHeight > parrafo.clientHeight + 1;
+	else {
+		resultado = parrafo.scrollHeight > parrafo.clientHeight + 1;
+	}
 	return resultado;
 }
 
-/** Pasada de ESCRITURA: solo modifica el DOM, no lo consulta. */
+/**
+ * Pasada de ESCRITURA: solo modifica el DOM, no lo consulta.
+ *
+ * Son tres casos excluyentes y se escriben como tales, con if/else, en vez de con tres salidas
+ * sueltas: así se ve de un vistazo que uno y solo uno se aplica siempre.
+ */
 function actualizarBotonVerMasDe(tarjeta, desborda) {
 	const boton = tarjeta.querySelector('.tarea__boton-desplegar');
 	const parrafo = tarjeta.querySelector('.tarea__texto');
 
 	if (parrafo.hidden) {
+		// Se está editando: el botón de desplegar no pinta nada ahí.
 		boton.hidden = true;
-		return;
 	}
-	// Ya desplegada: al no haber recorte no se puede medir el desbordamiento, pero el botón tiene
-	// que seguir ahí para poder volver a plegarla.
-	if (estado.estaDesplegada(Number(tarjeta.dataset.id))) {
+	else if (estado.estaDesplegada(Number(tarjeta.dataset.id))) {
+		// Ya desplegada: al no haber recorte no se puede medir el desbordamiento, pero el botón
+		// tiene que seguir ahí para poder volver a plegarla.
 		boton.hidden = false;
 		boton.textContent = 'Ver menos';
 		boton.setAttribute('aria-expanded', 'true');
-		return;
 	}
-	boton.hidden = !desborda;
-	boton.textContent = 'Ver más';
-	boton.setAttribute('aria-expanded', 'false');
+	else {
+		boton.hidden = !desborda;
+		boton.textContent = 'Ver más';
+		boton.setAttribute('aria-expanded', 'false');
+	}
 }
 
 /**
@@ -285,8 +343,12 @@ function actualizarResumen() {
 	const completadas = tareas.filter((tarea) => tarea.completada).length;
 	const pendientes = tareas.length - completadas;
 
-	elementos.resumen.textContent = (tareas.length === 0) ? 'Sin tareas.'
-		: `${completadas} de ${tareas.length} completadas.`;
+	if (tareas.length === 0) {
+		elementos.resumen.textContent = 'Sin tareas.';
+	}
+	else {
+		elementos.resumen.textContent = `${completadas} de ${tareas.length} completadas.`;
+	}
 
 	// max=1 con value=0 cuando no hay tareas: evita una división por cero y deja la barra vacía.
 	elementos.progreso.max = Math.max(tareas.length, 1);
@@ -309,7 +371,7 @@ export function actualizarContador() {
 
 /** Los cinco fondos, con el nombre que se enseña. El «ninguno» es el valor por defecto. */
 const FONDOS = [
-	{ valor: 'ninguno', nombre: 'Sin fondo' },
+	{ valor: estado.SIN_FONDO, nombre: 'Sin fondo' },
 	{ valor: 'ondas', nombre: 'Ondas' },
 	{ valor: 'puntos', nombre: 'Puntos' },
 	{ valor: 'lineas', nombre: 'Líneas' },
@@ -318,10 +380,16 @@ const FONDOS = [
 ];
 
 function aplicarFondo(tarjeta, fondo) {
+	const llevaFondo = fondo !== estado.SIN_FONDO;
+
+	// «Sin fondo» se salta: no tiene clase propia, es la ausencia de todas las demás. Antes entraba
+	// en el bucle solo para apagar una clase que no existe en la hoja de estilos.
 	for (const opcion of FONDOS) {
-		tarjeta.classList.toggle(`tarea--fondo-${opcion.valor}`, opcion.valor === fondo && fondo !== 'ninguno');
+		if (opcion.valor !== estado.SIN_FONDO) {
+			tarjeta.classList.toggle(`tarea--fondo-${opcion.valor}`, llevaFondo && opcion.valor === fondo);
+		}
 	}
-	tarjeta.classList.toggle('tarea--con-fondo', fondo !== 'ninguno');
+	tarjeta.classList.toggle('tarea--con-fondo', llevaFondo);
 }
 
 /**
@@ -344,7 +412,7 @@ export function abrirSelectorDeFondo(tarea, fondoActual, alElegir) {
 
 		const muestra = document.createElement('span');
 		muestra.className = 'selector-fondo__muestra';
-		if (opcion.valor !== 'ninguno') {
+		if (opcion.valor !== estado.SIN_FONDO) {
 			muestra.style.backgroundImage = `url("img/${opcion.valor}.svg")`;
 		}
 

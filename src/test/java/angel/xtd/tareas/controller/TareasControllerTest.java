@@ -4,6 +4,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
@@ -264,6 +266,94 @@ class TareasControllerTest {
 		this.mockMvc.perform(get("/tarea/fondo")).andExpect(status().isOk());
 
 		then(this.servicio).should(never()).consultarPorId(anyInt());
+	}
+
+	@Test
+	@DisplayName("PUT /tarea/{id} actualiza texto y estado y devuelve la tarea")
+	void actualizaUnaTarea() throws Exception {
+		given(this.servicio.actualizar(1, "Repasar CSS", true)).willReturn(new Tarea(1, "Repasar CSS", true));
+
+		this.mockMvc
+			.perform(put("/tarea/1").contentType(MediaType.APPLICATION_JSON)
+				.content("{\"texto\":\"Repasar CSS\",\"completada\":true}"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.id").value(1))
+			.andExpect(jsonPath("$.texto").value("Repasar CSS"))
+			.andExpect(jsonPath("$.completada").value(true));
+
+		then(this.servicio).should().actualizar(1, "Repasar CSS", true);
+	}
+
+	/**
+	 * El campo es {@code Boolean} y no {@code boolean} justamente para poder distinguir «me he
+	 * olvidado del campo» de «lo mando en false». Con el primitivo, un cuerpo sin
+	 * {@code completada} habría llegado al servicio como {@code false} y habría desmarcado la tarea
+	 * sin que el cliente lo pidiera.
+	 */
+	@Test
+	@DisplayName("PUT /tarea/{id} sin el campo completada responde 400 y no llega al servicio")
+	void rechazaActualizarSinCompletada() throws Exception {
+		this.mockMvc
+			.perform(put("/tarea/1").contentType(MediaType.APPLICATION_JSON).content("{\"texto\":\"Repasar CSS\"}"))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.errores.completada").exists());
+
+		then(this.servicio).should(never()).actualizar(anyInt(), anyString(), anyBoolean());
+	}
+
+	@Test
+	@DisplayName("PUT /tarea/{id} con el texto vacío responde 400")
+	void rechazaActualizarConTextoVacio() throws Exception {
+		this.mockMvc
+			.perform(put("/tarea/1").contentType(MediaType.APPLICATION_JSON)
+				.content("{\"texto\":\"   \",\"completada\":false}"))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.errores.texto").exists());
+
+		then(this.servicio).should(never()).actualizar(anyInt(), anyString(), anyBoolean());
+	}
+
+	@Test
+	@DisplayName("PUT /tarea/{id} de una tarea que no existe responde 404")
+	void actualizarUnaTareaInexistenteResponde404() throws Exception {
+		willThrow(new TareaNoEncontradaException(99)).given(this.servicio).actualizar(anyInt(), anyString(),
+				anyBoolean());
+
+		this.mockMvc
+			.perform(put("/tarea/99").contentType(MediaType.APPLICATION_JSON)
+				.content("{\"texto\":\"Da igual\",\"completada\":false}"))
+			.andExpect(status().isNotFound());
+	}
+
+	/**
+	 * El cuerpo es JSON perfectamente válido; lo que no vale es el fondo. Antes se respondía «El
+	 * cuerpo de la petición falta o no es JSON válido», que es falso y además no decía cuáles eran
+	 * los buenos.
+	 */
+	@Test
+	@DisplayName("un fondo desconocido explica cuáles son los válidos, sin decir que el JSON esté mal")
+	void elFondoDesconocidoSeExplica() throws Exception {
+		this.mockMvc
+			.perform(put("/tarea/1/fondo").contentType(MediaType.APPLICATION_JSON)
+				.content("{\"fondo\":\"marmol\"}"))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.detail").value(containsString("marmol")))
+			.andExpect(jsonPath("$.detail").value(containsString("ondas")))
+			.andExpect(jsonPath("$.detail").value(not(containsString("no es JSON válido"))));
+	}
+
+	/**
+	 * El JSON declara los fondos en minúsculas y {@code @JsonValue} solo produce esa forma. Aceptar
+	 * además la mayúscula dejaría la API con dos contratos: uno para leer y otro para escribir.
+	 */
+	@Test
+	@DisplayName("un fondo en mayúsculas se rechaza, porque la API nunca lo devuelve así")
+	void elFondoEnMayusculasSeRechaza() throws Exception {
+		this.mockMvc
+			.perform(put("/tarea/1/fondo").contentType(MediaType.APPLICATION_JSON).content("{\"fondo\":\"ONDAS\"}"))
+			.andExpect(status().isBadRequest());
+
+		then(this.servicio).should(never()).cambiarFondo(anyInt(), any());
 	}
 
 	@Test

@@ -176,4 +176,51 @@ class AlmacenTareasTest {
 		assertThat(nuevoAlmacen(this.archivo).consultarTodas()).isEmpty();
 	}
 
+	/**
+	 * El camino correcto ya tenía prueba («no queda ningún archivo temporal tras un guardado
+	 * correcto»), pero era justo el que no deja basura: al terminar bien, {@code Files.move} se ha
+	 * llevado el temporal. El que sí la dejaba era este.
+	 */
+	@Test
+	@DisplayName("un fallo de escritura tampoco deja el archivo temporal tirado")
+	void borraElTemporalSiLaEscrituraFalla() throws Exception {
+		Path rutaOcupada = this.directorio.resolve("ocupada.json");
+		AlmacenTareas almacen = nuevoAlmacen(rutaOcupada);
+
+		Files.createDirectory(rutaOcupada);
+		Files.createDirectory(rutaOcupada.resolve("no-esta-vacio"));
+
+		assertThatExceptionOfType(AlmacenamientoException.class)
+			.isThrownBy(() -> almacen.modificar((tareas, reservarId) -> tareas
+				.add(new Tarea(reservarId.getAsInt(), "Provoca el fallo", false))));
+
+		assertThat(this.directorio.resolve("ocupada.json.tmp"))
+			.as("el temporal debe limpiarse también cuando la escritura no llega a completarse")
+			.doesNotExist();
+	}
+
+	/**
+	 * En la frontera HTTP todo lo valida {@code @Valid}; en la del archivo no lo validaba nadie. Con
+	 * ids repetidos, el {@code Collectors.toMap} de reordenar reventaba con un 500 muy lejos de la
+	 * causa. Ahora se rechaza al cargar, y —esto es lo que comprueba la segunda aserción— se rechaza
+	 * ANTES de tocar la lista, para no dejar el almacén con datos que el resto del código cree
+	 * imposibles.
+	 */
+	@Test
+	@DisplayName("un archivo con ids repetidos se rechaza sin dejar el almacén a medio cargar")
+	void rechazaIdsRepetidosSinCargarNada() throws Exception {
+		Files.writeString(this.archivo, """
+				[{"id":1,"texto":"una","completada":false},
+				 {"id":1,"texto":"otra","completada":false}]
+				""", StandardCharsets.UTF_8);
+
+		AlmacenTareas almacen = new AlmacenTareas(JsonMapper.builder().build(),
+				new PropiedadesAlmacen(this.archivo.toString(), this.directorio.resolve("fondos.json").toString()));
+
+		assertThatExceptionOfType(AlmacenamientoException.class).isThrownBy(almacen::cargarDesdeArchivo)
+			.withMessageContaining("más de una vez");
+
+		assertThat(almacen.consultarTodas()).as("no debe quedar nada cargado tras rechazar el archivo").isEmpty();
+	}
+
 }

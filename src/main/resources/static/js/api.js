@@ -72,11 +72,12 @@ async function realizarPeticion(ruta, opciones = {}) {
 	}
 
 	// 204 No Content no trae cuerpo: intentar leerlo como JSON reventaría.
-	if (respuesta.status === 204 || respuesta.headers.get('Content-Length') === '0') {
-		return null;
-	}
+	const vieneSinCuerpo = respuesta.status === 204 || respuesta.headers.get('Content-Length') === '0';
 
-	const resultado = await respuesta.json();
+	let resultado = null;
+	if (!vieneSinCuerpo) {
+		resultado = await respuesta.json();
+	}
 	return resultado;
 }
 
@@ -124,32 +125,40 @@ export function eliminarTarea(id) {
 }
 
 /**
- * Borra una tarea cuando la pestaña se está cerrando.
+ * Manda una petición mientras la pestaña se cierra, sin esperar la respuesta.
  *
- * Va aparte del `eliminarTarea` normal por dos motivos: `keepalive` deja que la petición sobreviva a
- * la descarga de la página, y aquí no se puede esperar la respuesta ni enseñar un error, porque ya
- * no habrá nadie mirando. Por eso no lanza: como mucho, el borrado no llega y la tarea sigue ahí.
+ * Las tres llamadas «al salir» comparten dos cosas que las distinguen del resto del módulo:
+ * `keepalive`, que deja que la petición sobreviva a la descarga de la página, y que **no lanzan**.
+ * No hay a quién enseñarle un error ni tiempo para reintentar; como mucho el cambio no llega.
+ *
+ * El `.catch` es obligatorio y no adorno: `fetch` no falla de forma síncrona, devuelve una promesa
+ * que rechaza. Un `try/catch` alrededor no vería nada y un fallo de red dejaría una promesa
+ * rechazada sin gestionar, que además despertaría al manejador de `unhandledrejection` para
+ * intentar pintar un error en una página que ya se está yendo.
  */
+function enviarAlSalir(ruta, opciones) {
+	const configuracion = { ...opciones, keepalive: true };
+	if (configuracion.cuerpo !== undefined) {
+		configuracion.headers = { 'Content-Type': 'application/json' };
+		configuracion.body = JSON.stringify(configuracion.cuerpo);
+		delete configuracion.cuerpo;
+	}
+	fetch(ruta, configuracion).catch(() => {});
+}
+
+/** Borra una tarea cuando la pestaña se está cerrando. */
 export function eliminarTareaAlSalir(id) {
-	fetch(`${RUTA_BASE}/${id}`, { method: 'DELETE', keepalive: true }).catch(() => {});
+	enviarAlSalir(`${RUTA_BASE}/${id}`, { method: 'DELETE' });
 }
 
+/** Manda la edición que el temporizador del guardado automático no llegó a enviar. */
 export function guardarTareaAlSalir(id, texto, completada) {
-	fetch(`${RUTA_BASE}/${id}`, {
-		method: 'PUT',
-		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({ texto, completada }),
-		keepalive: true
-	}).catch(() => {});
+	enviarAlSalir(`${RUTA_BASE}/${id}`, { method: 'PUT', cuerpo: { texto, completada } });
 }
 
+/** Manda el orden que el temporizador del guardado automático no llegó a enviar. */
 export function reordenarAlSalir(ids) {
-	fetch(`${RUTA_BASE}/orden`, {
-		method: 'PUT',
-		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({ ids }),
-		keepalive: true
-	}).catch(() => {});
+	enviarAlSalir(`${RUTA_BASE}/orden`, { method: 'PUT', cuerpo: { ids } });
 }
 
 export function reordenarTareas(ids) {

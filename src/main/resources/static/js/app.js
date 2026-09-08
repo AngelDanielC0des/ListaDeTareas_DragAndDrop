@@ -126,7 +126,7 @@ function registrarEventos() {
 
 	// Si la pestaña se cierra con un borrado a medias, se manda igualmente: si no, la tarea
 	// reaparecería al volver y el borrado parecería no haber funcionado.
-	globalThis.addEventListener('pagehide', confirmarBorradoAlSalir);
+	globalThis.addEventListener('pagehide', alCerrarLaPagina);
 
 	// Red de seguridad: ningún fallo asíncrono debe quedarse mudo.
 	globalThis.addEventListener('unhandledrejection', (evento) => manejarError(evento.reason));
@@ -134,38 +134,66 @@ function registrarEventos() {
 
 /* ------------------------------------------------------------- Manejadores */
 
+/**
+ * Reparte los clics de la lista según el botón que se haya pulsado.
+ *
+ * Los casos son excluyentes —un botón es uno de los cuatro— así que se escriben como un `switch` y
+ * no como cuatro `if` sueltos con su `return`: de un vistazo se ve que forman una sola decisión y
+ * que están todos contemplados.
+ */
 function alPulsarEnLista(evento) {
 	const boton = evento.target.closest('button');
-	const tarjeta = boton?.closest('.tarea');
-	if (!boton || !tarjeta) {
+	const id = idDeLaTarjetaDe(boton);
+	if (id === null) {
 		return;
 	}
-	const id = Number(tarjeta.dataset.id);
 
 	if (boton.classList.contains('tarea__boton-desplegar')) {
 		estado.alternarDesplegada(id);
 		vista.actualizarTarjeta(id);
-		return;
 	}
-
-	if (boton.dataset.accion === 'fondo') {
-		elegirFondo(id);
-		return;
-	}
-
-	if (boton.dataset.accion === 'eliminar') {
-		eliminarTarea(id);
-		return;
-	}
-
-	if (boton.dataset.accion === 'editar') {
-		if (estado.obtenerIdEnEdicion() === id) {
-			terminarEdicion(id, { cancelar: false });
-		}
-		else {
-			empezarEdicion(id);
+	else {
+		switch (boton.dataset.accion) {
+			case 'fondo':
+				elegirFondo(id);
+				break;
+			case 'eliminar':
+				eliminarTarea(id);
+				break;
+			case 'editar':
+				alternarEdicion(id);
+				break;
+			default:
+				// Un botón de la tarjeta sin acción reconocida: no hay nada que hacer.
+				break;
 		}
 	}
+}
+
+/** Entrar o salir de la edición, según si esa tarea ya se estaba editando. */
+function alternarEdicion(id) {
+	if (estado.obtenerIdEnEdicion() === id) {
+		terminarEdicion(id, { cancelar: false });
+	}
+	else {
+		empezarEdicion(id);
+	}
+}
+
+/**
+ * El id de la tarea a la que pertenece un elemento de la lista, o `null` si no está dentro de una.
+ *
+ * Recoge el `Number(...closest('.tarea').dataset.id)` que estaba repetido en los cinco manejadores,
+ * y de paso les quita la comprobación de que el elemento exista, que cada uno hacía a su manera.
+ */
+function idDeLaTarjetaDe(elemento) {
+	const tarjeta = elemento?.closest('.tarea');
+
+	let resultado = null;
+	if (tarjeta) {
+		resultado = Number(tarjeta.dataset.id);
+	}
+	return resultado;
 }
 
 function alCambiarCasilla(evento) {
@@ -173,7 +201,7 @@ function alCambiarCasilla(evento) {
 	if (!casilla) {
 		return;
 	}
-	cambiarCompletada(Number(casilla.closest('.tarea').dataset.id), casilla.checked);
+	cambiarCompletada(idDeLaTarjetaDe(casilla), casilla.checked);
 }
 
 function alEscribirEnEditor(evento) {
@@ -181,7 +209,7 @@ function alEscribirEnEditor(evento) {
 	if (!editor) {
 		return;
 	}
-	const id = Number(editor.closest('.tarea').dataset.id);
+	const id = idDeLaTarjetaDe(editor);
 	const tarea = estado.buscarTareaPorId(id);
 	if (!tarea) {
 		return;
@@ -199,7 +227,7 @@ function alTeclearEnEditor(evento) {
 	if (!editor) {
 		return;
 	}
-	const id = Number(editor.closest('.tarea').dataset.id);
+	const id = idDeLaTarjetaDe(editor);
 
 	if (evento.key === 'Escape') {
 		evento.preventDefault();
@@ -218,7 +246,7 @@ function alSalirDelEditor(evento) {
 	if (!editor) {
 		return;
 	}
-	terminarEdicion(Number(editor.closest('.tarea').dataset.id), { cancelar: false });
+	terminarEdicion(idDeLaTarjetaDe(editor), { cancelar: false });
 }
 
 /* ----------------------------------------------------------------- Acciones */
@@ -357,34 +385,54 @@ async function confirmarBorradoPendiente() {
  * `keepalive` permite que la petición sobreviva a la descarga de la página; sin él el navegador la
  * cancelaría y la tarea reaparecería al volver.
  */
+function alCerrarLaPagina() {
+	vaciarGuardadoDeTextoPendiente();
+	vaciarGuardadoDeOrdenPendiente();
+	confirmarBorradoAlSalir();
+}
+
+/**
+ * Manda ya la edición que estaba esperando al temporizador.
+ *
+ * Sin esto, cerrar la pestaña dentro del medio segundo siguiente a la última tecla perdía lo escrito
+ * en silencio, que es justo lo contrario de lo que promete un guardado automático.
+ *
+ * Qué tarea es se le pregunta al estado, no al DOM: `estado.js` es la fuente de verdad, y buscar el
+ * `.tarea__editor:focus` fallaría si el foco ya se ha ido al empezar a descargarse la página.
+ */
+function vaciarGuardadoDeTextoPendiente() {
+	if (temporizadorDeTexto === null) {
+		return;
+	}
+	clearTimeout(temporizadorDeTexto);
+	temporizadorDeTexto = null;
+
+	const id = estado.obtenerIdEnEdicion();
+	const tarea = (id === null) ? null : estado.buscarTareaPorId(id);
+	if (tarea === null) {
+		return;
+	}
+
+	const textoEnviado = tarea.texto.trim();
+	const haCambiado = textoEnviado.length > 0 && textoEnviado !== estado.obtenerTextoGuardadoDeEdicion();
+	if (haCambiado) {
+		api.guardarTareaAlSalir(id, textoEnviado, tarea.completada);
+	}
+}
+
+/** Lo mismo para el orden: una ráfaga de Ctrl+Flecha sin confirmar no debe perderse al cerrar. */
+function vaciarGuardadoDeOrdenPendiente() {
+	if (temporizadorDeOrden === null) {
+		return;
+	}
+	clearTimeout(temporizadorDeOrden);
+	temporizadorDeOrden = null;
+	respaldoAntesDeReordenar = null;
+
+	api.reordenarAlSalir(estado.obtenerIdsEnOrden());
+}
+
 function confirmarBorradoAlSalir() {
-	// Forzar guardado de texto pendiente con keepalive
-	if (temporizadorDeTexto !== null) {
-		clearTimeout(temporizadorDeTexto);
-		temporizadorDeTexto = null;
-		const editorActivo = document.querySelector('.tarea__editor:focus');
-		if (editorActivo) {
-			const id = Number(editorActivo.closest('.tarea').dataset.id);
-			const tarea = estado.buscarTareaPorId(id);
-			if (tarea) {
-				const textoEnviado = tarea.texto.trim();
-				if (textoEnviado.length > 0 && textoEnviado !== estado.obtenerTextoGuardadoDeEdicion()) {
-					api.guardarTareaAlSalir(id, textoEnviado, tarea.completada);
-				}
-			}
-		}
-	}
-
-	// Forzar guardado de orden pendiente con keepalive
-	if (temporizadorDeOrden !== null) {
-		clearTimeout(temporizadorDeOrden);
-		temporizadorDeOrden = null;
-		if (respaldoAntesDeReordenar !== null) {
-			respaldoAntesDeReordenar = null;
-			api.reordenarAlSalir(estado.obtenerIdsEnOrden());
-		}
-	}
-
 	if (borradoPendiente === null) {
 		return;
 	}
@@ -492,7 +540,13 @@ function terminarEdicion(id, { cancelar }) {
 
 	const textoOriginal = estado.obtenerTextoOriginalDeEdicion();
 	const tarea = estado.buscarTareaPorId(id);
-	const textoFinal = cancelar ? textoOriginal : (tarea?.texto ?? '');
+	let textoFinal;
+	if (cancelar) {
+		textoFinal = textoOriginal;
+	}
+	else {
+		textoFinal = tarea?.texto ?? '';
+	}
 	const quedaVacio = textoFinal.trim().length === 0;
 
 	if (cancelar || quedaVacio) {
@@ -562,6 +616,13 @@ function alPulsarAtajo(evento) {
 	if (evento.key !== 'n' || evento.ctrlKey || evento.altKey || evento.metaKey) {
 		return;
 	}
+	// Con el selector de fondo abierto el atajo no pinta nada: el campo de alta queda detrás de un
+	// modal y por tanto inerte, así que enfocarlo no haría nada y encima nos comeríamos la tecla.
+	const hayDialogoAbierto = document.querySelector('dialog[open]') !== null;
+	if (hayDialogoAbierto) {
+		return;
+	}
+
 	// Se excluyen solo los campos donde se escribe. Las casillas y los botones también son
 	// elementos de formulario, pero ahí la «n» no se teclea, así que el atajo debe seguir valiendo.
 	const escribiendo = evento.target.closest(

@@ -11,6 +11,7 @@
  * movido el nodo cuando avisa, y el teclado no, y eso viaja como tercer argumento.
  */
 
+import * as estado from './estado.js';
 import * as vista from './vista.js';
 
 const DURACION_ANIMACION = 150;
@@ -65,20 +66,22 @@ function registrarReordenacionPorTeclado(alMover) {
 			return;
 		}
 
-		const tarjeta = asa.closest('.tarea');
-		const desde = [...vista.lista.children].indexOf(tarjeta);
+		// La posición se pregunta al estado, no al DOM. `estado.js` abre diciendo que el DOM es una
+		// proyección suya y que nunca se le consulta el orden; esta era la única grieta en esa regla.
+		const id = Number(asa.closest('.tarea').dataset.id);
+		const desde = estado.buscarPosicionDeTarea(id);
+		const total = estado.obtenerTareas().length;
 		const hasta = (evento.key === 'ArrowUp') ? desde - 1 : desde + 1;
-		if (hasta < 0 || hasta >= vista.lista.children.length) {
+		if (desde === -1 || hasta < 0 || hasta >= total) {
 			return;
 		}
 
 		evento.preventDefault();
-		const id = Number(tarjeta.dataset.id);
 		alMover(desde, hasta, false);
 
 		// La tarjeta se ha movido de sitio en el DOM, pero es el mismo nodo: el foco lo sigue. Aun
 		// así se reafirma, para que encadenar varios movimientos funcione en cualquier navegador.
 		vista.obtenerTarjetaDeTarea(id)?.querySelector('.tarea__asa')?.focus();
-		vista.anunciar(`Tarea movida a la posición ${hasta + 1} de ${vista.lista.children.length}.`);
+		vista.anunciar(`Tarea movida a la posición ${hasta + 1} de ${total}.`);
 	});
 }

@@ -1,0 +1,31 @@
+﻿Extraer la escritura atomica y pasada de legibilidad
+
+Cierra el ultimo hallazgo de la auditoria y repasa el codigo buscando
+cadenas de condiciones, funciones que hacen varias cosas y duplicacion.
+
+ArchivoJsonAtomico recoge la E/S que AlmacenTareas y AlmacenFondos tenian
+copiada linea por linea: el sufijo temporal, la escritura en dos pasos, el
+respaldo para sistemas de archivos sin movimiento atomico y la limpieza
+del temporal. Que estuviera duplicado no era teorico: el fallo de dejarse
+el temporal tirado estaba en las dos copias porque se copiaron juntas.
+Cada almacen se queda con lo suyo y su guardarEnArchivo es una linea.
+
+Legibilidad:
+
+- alPulsarEnLista pasa de cuatro if con return a un switch con default,
+  porque los casos son excluyentes y asi se ve que estan todos.
+- El Number(...closest('.tarea').dataset.id) repetido en cinco
+  manejadores se recoge en idDeLaTarjetaDe().
+- rellenarTarjeta, que hacia seis cosas en 49 lineas, se reparte en
+  rellenarCasilla, nombrarLosBotones, rellenarTextoYEditor y
+  aplicarModoEdicion. La etiqueta se busca por su clase y no como el
+  primer <label> de la tarjeta.
+- Cuatro ternarios densos pasan a if/else: el doble de terminarEdicion,
+  el que iba dentro de un indice de array, el del texto de la etiqueta y
+  el del resumen. Los cortos y puros se quedan como estaban.
+- La cadena 'ninguno', escrita en cinco sitios de dos modulos, pasa a ser
+  estado.SIN_FONDO. aplicarFondo deja de recorrer el bucle para apagar una
+  clase que el CSS no define.
+
+82 tests verdes. CRUD completo comprobado contra el servidor: tareas.json
+conserva sus tres campos y no quedan archivos temporales.
