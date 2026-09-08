@@ -35,7 +35,8 @@ class AlmacenFondosTest {
 
 	private AlmacenFondos nuevoAlmacen() {
 		AlmacenFondos almacen = new AlmacenFondos(JsonMapper.builder().build(),
-				new PropiedadesAlmacen(this.directorio.resolve("tareas.json").toString(), this.archivo.toString()));
+				new PropiedadesAlmacen(this.directorio.resolve("tareas.json").toString(), this.archivo.toString(),
+						this.directorio.resolve("grupos.json").toString()));
 		almacen.cargarDesdeArchivo();
 		return almacen;
 	}

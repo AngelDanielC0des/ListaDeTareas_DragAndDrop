@@ -5,7 +5,7 @@
  *   - Especificidad plana: una sola clase por selector. Sin selectores de id, sin anidamiento,
  *     sin !important. Así cualquier regla posterior puede sobrescribir a otra sin pelearse.
  *   - Nomenclatura BEM: .bloque, .bloque__elemento, .bloque--modificador.
- *   - Mobile first: la base son 2 columnas y los @media solo añaden.
+ *   - Mobile first: la base es la pantalla estrecha y los @media solo añaden.
  *   - Todo color, espacio y radio sale de una variable de :root.
  */
 
@@ -127,7 +127,8 @@ body {
 
 /*
  * Enlace de salto: invisible hasta que recibe el foco. Sin él, quien navega con el tabulador tiene
- * que pasar por el titular y los tres radios del tema antes de llegar a las tareas.
+ * que pasar por el titular, el interruptor de tema, el alta y los filtros antes de llegar a las
+ * tareas.
  */
 .salto-al-contenido {
 	position: absolute;
@@ -244,60 +245,6 @@ body {
 	background-color: var(--color-exito);
 }
 
-/* ------------------------------------------------------------ Tema */
-
-.tema {
-	display: flex;
-	gap: 0;
-	margin: 0;
-	padding: 0;
-	border: 1px solid var(--color-borde);
-	border-radius: var(--radio-pequeno);
-	overflow: hidden;
-}
-
-.tema__opcion {
-	display: inline-flex;
-}
-
-/*
- * El radio se oculta pero NO con display:none, que lo sacaría del orden de tabulación: sigue
- * siendo el que recibe el foco y el que se mueve con las flechas; lo que se ve es el <span>.
- */
-.tema__radio {
-	position: absolute;
-	width: 1px;
-	height: 1px;
-	opacity: 0;
-	pointer-events: none;
-}
-
-.tema__texto {
-	display: inline-block;
-	padding: var(--espacio-1) var(--espacio-3);
-	color: var(--color-texto-suave);
-	font-size: 0.75rem;
-	font-weight: 600;
-	cursor: pointer;
-	transition: background-color 120ms ease, color 120ms ease;
-}
-
-.tema__texto:hover {
-	background-color: var(--color-superficie-suave);
-	color: var(--color-texto);
-}
-
-.tema__radio:checked + .tema__texto {
-	background-color: var(--color-acento);
-	color: var(--color-acento-texto);
-}
-
-/* El foco lo recibe el radio, que es invisible, así que se dibuja sobre el texto. */
-.tema__radio:focus-visible + .tema__texto {
-	outline: 2px solid var(--color-acento);
-	outline-offset: -2px;
-}
-
 /* -------------------------------------------------------------- Contenido */
 
 .contenido-principal {
@@ -310,13 +257,6 @@ body {
 
 .formulario {
 	margin-bottom: var(--espacio-5);
-}
-
-.formulario__etiqueta {
-	display: block;
-	margin-bottom: var(--espacio-2);
-	font-size: 0.875rem;
-	font-weight: 600;
 }
 
 .formulario__fila {
@@ -368,13 +308,6 @@ body {
 .boton:hover {
 	border-color: var(--color-texto-suave);
 	background-color: var(--color-superficie-suave);
-}
-
-.boton--icono {
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	gap: var(--espacio-2);
 }
 
 .boton--principal {
@@ -514,27 +447,21 @@ body {
  * `align-items: start` hace que cada tarjeta tome su altura natural: una tarea de una línea ocupa
  * poco y una de dos líneas ocupa más, en vez de estirarse todas a la más alta de su fila.
  */
+/*
+ * Una tarea por fila, no una rejilla.
+ *
+ * Antes eran de 2 a 4 columnas según la pantalla. Con grupos eso no funciona: agrupar y encolumnar
+ * compiten, porque una rejilla con pocas tareas por grupo deja filas a medias y huecos, y la vista
+ * deja de leerse como una lista de secciones. Es lo que hacen Things, Todoist y TickTick, y por el
+ * mismo motivo.
+ */
 .lista {
-	display: grid;
-	grid-template-columns: repeat(2, minmax(0, 1fr));
-	align-items: start;
-	gap: var(--espacio-3);
+	display: flex;
+	flex-direction: column;
+	gap: var(--espacio-2);
 	margin: 0;
 	padding: 0;
 	list-style: none;
-}
-
-@media (min-width: 600px) {
-	.lista {
-		grid-template-columns: repeat(3, minmax(0, 1fr));
-	}
-}
-
-@media (min-width: 1024px) {
-	.lista {
-		grid-template-columns: repeat(4, minmax(0, 1fr));
-		gap: var(--espacio-4);
-	}
 }
 
 /* ------------------------------------------------------------------ Tarea */
@@ -639,10 +566,15 @@ body {
 	line-clamp: none;
 }
 
+/*
+ * Una completada se atenúa; NO se tacha.
+ *
+ * El tachado dificulta releer lo que ya está hecho, que es justo lo que se quiere poder hacer al
+ * repasar. La casilla marcada y el contraste más bajo ya dicen que está terminada, y así nada se
+ * mueve ni se hace ilegible al pulsar.
+ */
 .tarea--completada .tarea__texto {
 	color: var(--color-texto-suave);
-	text-decoration: line-through;
-	text-decoration-color: currentColor;
 }
 
 .tarea__editor {
@@ -892,8 +824,7 @@ kbd {
  */
 @media (max-width: 479px) {
 
-	.tarea__accion-texto,
-	.boton__texto {
+	.tarea__accion-texto {
 		position: absolute;
 		width: 1px;
 		height: 1px;
@@ -903,10 +834,6 @@ kbd {
 		overflow: hidden;
 		white-space: nowrap;
 		clip-path: inset(50%);
-	}
-
-	.boton--icono {
-		padding: var(--espacio-2);
 	}
 
 	.tarea__accion {
@@ -930,7 +857,6 @@ kbd {
 		transition-duration: 0.01ms;
 	}
 }
-
 
 /* ------------------------------------------------------- Transiciones de vista */
 
@@ -984,21 +910,6 @@ kbd {
 
 /* --------------------------------------------------- Marcar como completada */
 
-/*
- * El tachado aparece progresivamente en vez de de golpe, como confirmación de que la pulsación ha
- * surtido efecto.
- *
- * Se anima el COLOR de la línea, no una línea propia dibujada con un pseudo-elemento. El primer
- * intento fue eso último y estaba mal por dos motivos: encima del `text-decoration: line-through`
- * que la tarjeta ya tenía habría quedado una raya doble, y al recortarse el texto a dos líneas una
- * barra de ancho fijo solo habría cruzado la primera. `text-decoration-color` sí es animable y tacha
- * todas las líneas, que es lo que hay que tachar.
- */
-.tarea__texto {
-	text-decoration-color: transparent;
-	transition: text-decoration-color 220ms ease-out;
-}
-
 @media (prefers-reduced-motion: reduce) {
 
 	/*
@@ -1011,9 +922,6 @@ kbd {
 		animation: none !important;
 	}
 
-	.tarea__texto {
-		transition: none;
-	}
 }
 
 /* ------------------------------------------------------------ Filtro y búsqueda */
@@ -1130,7 +1038,7 @@ kbd {
 }
 
 /* Mientras el arrastre está desactivado, el asa deja de invitar a arrastrar. */
-.lista--sin-arrastre .tarea__asa {
+.secciones--sin-arrastre .tarea__asa {
 	opacity: 0.35;
 	cursor: default;
 }
@@ -1154,7 +1062,6 @@ kbd {
 		padding: var(--espacio-2) var(--espacio-3);
 	}
 }
-
 
 /* --------------------------------------------------------- Ayuda de atajos */
 
@@ -1222,4 +1129,306 @@ kbd {
 
 .pie__enlace:hover {
 	color: var(--color-texto);
+}
+
+/* ---------------------------------------------------------------- Secciones */
+
+.secciones {
+	display: flex;
+	flex-direction: column;
+	gap: var(--espacio-6);
+	margin-bottom: var(--espacio-5);
+}
+
+.seccion {
+	display: flex;
+	flex-direction: column;
+	gap: var(--espacio-2);
+}
+
+/*
+ * La cabecera se queda pegada arriba al desplazarse. Con varias secciones largas, saber en cuál
+ * estás sin tener que subir es la diferencia entre una lista y un montón.
+ */
+.seccion__cabecera {
+	position: sticky;
+	top: 0;
+	z-index: 1;
+	display: flex;
+	align-items: center;
+	gap: var(--espacio-3);
+	padding: var(--espacio-2) 0;
+	background-color: var(--color-fondo);
+}
+
+.seccion__nombre {
+	margin: 0;
+	font-size: 0.95rem;
+	font-weight: 600;
+	letter-spacing: 0.01em;
+}
+
+.seccion__cuenta {
+	color: var(--color-texto-suave);
+	font-size: 0.8rem;
+	font-variant-numeric: tabular-nums;
+}
+
+/* Ocupa el hueco sobrante, así que la barra mide lo que dé de sí la fila. */
+.seccion__progreso {
+	flex: 1 1 auto;
+	max-width: 12rem;
+	height: 4px;
+	border: 0;
+	border-radius: 2px;
+	background-color: var(--color-superficie-suave);
+	accent-color: var(--color-exito);
+}
+
+.seccion__progreso::-webkit-progress-bar {
+	border-radius: 2px;
+	background-color: var(--color-superficie-suave);
+}
+
+.seccion__progreso::-webkit-progress-value {
+	border-radius: 2px;
+	background-color: var(--color-exito);
+	transition: width 220ms ease-out;
+}
+
+.seccion__acciones {
+	display: flex;
+	gap: var(--espacio-1);
+	margin-left: auto;
+}
+
+.seccion__accion {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-width: 1.75rem;
+	min-height: 1.75rem;
+	padding: var(--espacio-1);
+	border: 0;
+	border-radius: var(--radio-pequeno);
+	background: none;
+	color: var(--color-texto-suave);
+	cursor: pointer;
+	transition: background-color 120ms ease, color 120ms ease;
+}
+
+.seccion__accion:hover {
+	background-color: var(--color-superficie-suave);
+	color: var(--color-texto);
+}
+
+.seccion__accion--peligro:hover {
+	color: var(--color-peligro);
+}
+
+/*
+ * El hueco de un grupo sin tareas. Además de explicar, es la zona sobre la que se sueltan las
+ * tarjetas al arrastrarlas: sin él, un grupo vacío no tendría dónde soltar.
+ */
+.seccion__vacia {
+	margin: 0;
+	padding: var(--espacio-4);
+	border: 1px dashed var(--color-borde);
+	border-radius: var(--radio-pequeno);
+	color: var(--color-texto-suave);
+	font-size: 0.85rem;
+	text-align: center;
+}
+
+/* --------------------------------------------------------- Alta plegable */
+
+.alta,
+.alta-grupo {
+	margin-bottom: var(--espacio-4);
+}
+
+/*
+ * El botón que despliega el alta. Ocupa todo el ancho y lleva el signo dentro: es la acción
+ * principal de la pantalla y tiene que verse como tal sin gritar.
+ */
+.alta__abrir,
+.alta-grupo__abrir {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: var(--espacio-2);
+	width: 100%;
+	padding: var(--espacio-3);
+	border: 1px dashed var(--color-borde);
+	border-radius: var(--radio);
+	background: none;
+	color: var(--color-texto-suave);
+	font: inherit;
+	font-size: 0.9rem;
+	cursor: pointer;
+	transition: border-color 120ms ease, color 120ms ease, background-color 120ms ease;
+}
+
+.alta__abrir:hover,
+.alta-grupo__abrir:hover {
+	border-color: var(--color-acento);
+	background-color: var(--color-superficie);
+	color: var(--color-texto);
+}
+
+.alta__abrir {
+	border-style: solid;
+	border-color: var(--color-acento);
+	color: var(--color-acento);
+	font-weight: 600;
+}
+
+/*
+ * El formulario aparece con una animación corta. 200 ms es el punto en que se percibe el movimiento
+ * sin que llegue a estorbar: por debajo parece un salto, y por encima se hace esperar.
+ */
+.formulario[id] {
+	animation: desplegar-alta 200ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+@keyframes desplegar-alta {
+	from {
+		opacity: 0;
+		transform: translateY(-0.35rem);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+	.formulario[id] {
+		animation: none;
+	}
+
+	.seccion__progreso::-webkit-progress-value {
+		transition: none;
+	}
+}
+
+/* ------------------------------------------------------ Casilla de completar */
+
+/*
+ * La casilla del navegador es un cuadrito diminuto que no dice para qué sirve. Se sustituye por un
+ * círculo grande con su marca dentro, que es el gesto que todo el mundo reconoce de una lista de
+ * tareas, y que al pasar por encima enseña la marca en gris para anticipar qué va a pasar.
+ *
+ * El <input> sigue estando y sigue siendo él quien recibe el foco y el teclado: solo se le quita la
+ * apariencia. Nada de reemplazarlo por un <div> con role="checkbox".
+ */
+.tarea__casilla {
+	appearance: none;
+	position: relative;
+	width: 1.4rem;
+	height: 1.4rem;
+	margin: 0;
+	/*
+	 * El borde va con --color-texto-suave y no con --color-borde, que es el que usan las tarjetas.
+	 * Medido, --color-borde da 1,31:1 contra la superficie: la WCAG 1.4.11 pide 3:1 para el
+	 * contorno de un control cuando ese contorno es lo único que lo identifica, y una casilla vacía
+	 * es exactamente ese caso. Un botón puede permitirse un borde tenue porque se reconoce por su
+	 * texto; un círculo vacío, no.
+	 */
+	border: 2px solid var(--color-texto-suave);
+	border-radius: 50%;
+	background-color: transparent;
+	cursor: pointer;
+	flex: none;
+	transition: border-color 140ms ease, background-color 140ms ease;
+}
+
+/* La marca se dibuja con dos lados de un cuadrado girado: sin imagen y sin fuente de iconos. */
+.tarea__casilla::after {
+	content: "";
+	position: absolute;
+	left: 50%;
+	top: 46%;
+	width: 0.3rem;
+	height: 0.6rem;
+	border: solid transparent;
+	border-width: 0 2px 2px 0;
+	transform: translate(-50%, -55%) rotate(45deg);
+	transition: border-color 140ms ease;
+}
+
+.tarea__casilla:hover {
+	border-color: var(--color-exito);
+}
+
+/* Al pasar por encima se insinúa la marca: dice qué va a pasar antes de pulsar. */
+.tarea__casilla:hover::after {
+	border-color: var(--color-texto-suave);
+}
+
+.tarea__casilla:checked {
+	border-color: var(--color-exito);
+	background-color: var(--color-exito);
+}
+
+.tarea__casilla:checked::after {
+	border-color: var(--color-superficie);
+}
+
+.tarea__casilla:focus-visible {
+	outline: 2px solid var(--color-acento);
+	outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+	.tarea__casilla,
+	.tarea__casilla::after {
+		transition: none;
+	}
+}
+
+/* ----------------------------------------------------- Interruptor de tema */
+
+.tema {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 2.25rem;
+	height: 2.25rem;
+	padding: 0;
+	border: 1px solid var(--color-borde);
+	border-radius: var(--radio-pequeno);
+	background-color: var(--color-superficie);
+	color: var(--color-texto-suave);
+	cursor: pointer;
+	transition: border-color 120ms ease, color 120ms ease;
+}
+
+.tema:hover {
+	border-color: var(--color-acento);
+	color: var(--color-texto);
+}
+
+/*
+ * Se enseña el icono de lo que va a pasar, no el del estado actual: en claro se ve la luna porque
+ * pulsar lleva a oscuro. Es la convención de GitHub y de casi todos, y evita la duda de si el icono
+ * describe el tema puesto o el que se va a poner.
+ */
+/* Los dos iconos existen a la vez; el CSS decide cuál se ve según el estado del interruptor. */
+.tema__icono {
+	pointer-events: none;
+}
+
+.tema__icono--luna {
+	display: block;
+}
+
+.tema__icono--sol {
+	display: none;
+}
+
+.tema[aria-pressed="true"] .tema__icono--luna {
+	display: none;
+}
+
+.tema[aria-pressed="true"] .tema__icono--sol {
+	display: block;
 }

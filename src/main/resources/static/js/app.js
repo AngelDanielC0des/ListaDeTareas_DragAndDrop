@@ -99,15 +99,18 @@ async function cargarConfiguracion() {
 /**
  * Pide las tareas y sus fondos a la vez.
  *
- * Van en dos peticiones porque son dos recursos distintos en el servidor —una tarea son tres campos
- * y el fondo es decoración aparte—, pero se lanzan en paralelo y se pinta una sola vez.
+ * Van en tres peticiones porque son tres recursos distintos en el servidor —una tarea son tres
+ * campos, y el fondo y el grupo viven aparte—, pero se lanzan en paralelo y se pinta una sola vez.
  */
 async function cargarTareas() {
 	try {
-		const [tareas, fondos] = await Promise.all([api.listarTareas(), api.consultarFondos()]);
+		const [tareas, fondos, grupos] = await Promise.all([
+			api.listarTareas(), api.consultarFondos(), api.consultarGrupos()
+		]);
 		estado.reemplazarTareas(tareas);
 		estado.reemplazarFondos(fondos);
-		vista.pintarLista();
+		estado.reemplazarGrupos(grupos);
+		repintar();
 	}
 	catch (error) {
 		manejarError(error);
@@ -122,18 +125,35 @@ function registrarEventos() {
 
 	vista.campoTexto.addEventListener('input', () => vista.actualizarContador());
 
-	vista.lista.addEventListener('click', alPulsarEnLista);
-	vista.lista.addEventListener('change', alCambiarCasilla);
-	vista.lista.addEventListener('input', alEscribirEnEditor);
-	vista.lista.addEventListener('keydown', (evento) => alTeclearEnEditor(/** @type {KeyboardEvent} */ (evento)));
+	vista.secciones.addEventListener('click', alPulsarEnLista);
+	vista.secciones.addEventListener('change', alCambiarCasilla);
+	vista.secciones.addEventListener('input', alEscribirEnEditor);
+	vista.secciones.addEventListener('keydown', (evento) => alTeclearEnEditor(/** @type {KeyboardEvent} */ (evento)));
 	// El foco no burbujea, pero focusout sí, que es lo que permite delegarlo en el contenedor.
-	vista.lista.addEventListener('focusout', alSalirDelEditor);
+	vista.secciones.addEventListener('focusout', alSalirDelEditor);
+
+	// Alta de tareas, plegada tras un «+».
+	vista.botonAbrirAlta.addEventListener('click', () => vista.mostrarAlta(true));
+	vista.botonCancelarAlta.addEventListener('click', () => vista.mostrarAlta(false));
+
+	// Alta de grupos, con el mismo patrón.
+	vista.botonAbrirGrupo.addEventListener('click', () => vista.mostrarAltaDeGrupo(true));
+	vista.botonCancelarGrupo.addEventListener('click', () => vista.mostrarAltaDeGrupo(false));
+	vista.formularioGrupo.addEventListener('submit', (evento) => {
+		evento.preventDefault();
+		crearGrupo(vista.campoGrupo.value);
+	});
+
+	// Las acciones de una cabecera de grupo van delegadas en el contenedor, igual que las de las
+	// tarjetas: las secciones se repintan enteras y colgar listeners de cada una los perdería.
+	vista.secciones.addEventListener('click', alPulsarEnCabecera);
 
 	vista.alCambiarElFiltro((filtro) => aplicarFiltro(filtro));
 
 	vista.alPulsarVerAtajos(() => vista.alternarAtajos());
 
-	vista.alCambiarElTema((tema) => {
+	vista.alPulsarElTema(() => {
+		const tema = vista.temaContrarioAlActual();
 		preferencias.guardarTema(tema);
 		vista.aplicarTema(tema);
 	});
@@ -146,6 +166,19 @@ function registrarEventos() {
 
 	// Red de seguridad: ningún fallo asíncrono debe quedarse mudo.
 	globalThis.addEventListener('unhandledrejection', (evento) => manejarError(evento.reason));
+}
+
+/**
+ * Repinta y vuelve a enganchar el arrastre.
+ *
+ * Va junto en una sola función porque `pintarLista()` reemplaza las secciones enteras: las
+ * instancias de SortableJS quedarían apuntando a nodos que ya no están en el documento, y el
+ * arrastre dejaría de responder sin dar ninguna pista de por qué.
+ */
+function repintar() {
+	vista.pintarLista();
+	arrastre.rehacer();
+	arrastre.permitirReordenar(!estado.hayFiltroActivo());
 }
 
 /* ------------------------------------------------------------- Manejadores */
@@ -299,7 +332,7 @@ function aplicarFiltro(filtro) {
 	estado.filtrarPorEstado(/** @type {'todas' | 'pendientes' | 'completadas'} */ (filtro.estado));
 	estado.buscar(filtro.busqueda);
 
-	vista.pintarLista();
+	repintar();
 	arrastre.permitirReordenar(!estado.hayFiltroActivo());
 	vista.anunciar(vista.describirResultados());
 }
@@ -323,7 +356,7 @@ async function anadirTarea(texto) {
 		estado.anadirTarea(creada);
 		vista.campoTexto.value = '';
 		vista.actualizarContador();
-		vista.pintarLista();
+		repintar();
 		vista.limpiarError();
 		vista.anunciar(`Tarea añadida: ${creada.texto}`);
 	}
@@ -332,6 +365,8 @@ async function anadirTarea(texto) {
 	}
 	finally {
 		vista.bloquearAlta(false);
+		// El alta se queda abierta y con el foco dentro: encadenar varias tareas seguidas es lo
+		// normal, y obligar a volver a pulsar «+» cada vez sería un paso de más.
 		vista.campoTexto.focus();
 	}
 }
@@ -389,7 +424,7 @@ function eliminarTarea(id) {
 
 	const posicion = estado.buscarPosicionDeTarea(id);
 	estado.quitarTarea(id);
-	vista.pintarLista();
+	repintar();
 	vista.anunciar(`Tarea borrada: ${tarea.texto}. Puedes deshacerlo.`);
 
 	// Al desaparecer la tarjeta, el foco se caería al body y quien navega con teclado perdería el
@@ -414,7 +449,7 @@ function deshacerBorrado() {
 	borradoPendiente = null;
 
 	vista.ocultarDeshacer();
-	vista.pintarLista();
+	repintar();
 	vista.limpiarError();
 	vista.anunciar('Borrado deshecho.');
 	vista.enfocarTarjeta(borrada.id);
@@ -436,7 +471,7 @@ async function confirmarBorradoPendiente() {
 	}
 	catch (error) {
 		estado.insertarTareaEn(posicion, tarea);
-		vista.pintarLista();
+		repintar();
 		manejarError(error);
 	}
 }
@@ -505,6 +540,116 @@ function confirmarBorradoAlSalir() {
 	api.eliminarTareaAlSalir(tarea.id);
 }
 
+/* ------------------------------------------------------------------ Grupos */
+
+/** @param {Event} evento */
+function alPulsarEnCabecera(evento) {
+	if (!(evento.target instanceof Element)) {
+		return;
+	}
+	const boton = evento.target.closest('.seccion__accion');
+	const seccion = boton?.closest('.seccion');
+	if (!(boton instanceof HTMLElement) || !(seccion instanceof HTMLElement)) {
+		return;
+	}
+
+	const idGrupo = Number(seccion.dataset.grupo);
+	if (boton.dataset.accion === 'renombrar-grupo') {
+		renombrarGrupo(idGrupo);
+	}
+	else if (boton.dataset.accion === 'borrar-grupo') {
+		borrarGrupo(idGrupo);
+	}
+}
+
+/** @param {string} nombre */
+async function crearGrupo(nombre) {
+	const nombreLimpio = nombre.trim();
+	if (nombreLimpio.length === 0) {
+		vista.mostrarError('Escribe un nombre para el grupo.');
+		vista.campoGrupo.focus();
+		return;
+	}
+
+	try {
+		await api.crearGrupo(nombreLimpio);
+		estado.reemplazarGrupos(await api.consultarGrupos());
+		vista.mostrarAltaDeGrupo(false);
+		repintar();
+		vista.limpiarError();
+		vista.anunciar(`Grupo creado: ${nombreLimpio}`);
+	}
+	catch (error) {
+		manejarError(error);
+	}
+}
+
+/**
+ * Renombra un grupo.
+ *
+ * Se pide el nombre con `prompt()` a propósito: es la única parte de la aplicación que lo usa, y la
+ * alternativa —otro diálogo más con su formulario— añadiría bastante interfaz para una acción que se
+ * hace muy de vez en cuando. Si algún día se hace habitual, aquí es donde tocaría cambiarlo.
+ *
+ * @param {number} idGrupo
+ */
+async function renombrarGrupo(idGrupo) {
+	const actual = estado.obtenerGrupos().find((grupo) => grupo.id === idGrupo);
+	if (actual === undefined) {
+		return;
+	}
+
+	const nombre = globalThis.prompt('Nuevo nombre del grupo:', actual.nombre);
+	if (nombre === null || nombre.trim() === '' || nombre.trim() === actual.nombre) {
+		return;
+	}
+
+	try {
+		await api.renombrarGrupo(idGrupo, nombre.trim());
+		estado.reemplazarGrupos(await api.consultarGrupos());
+		repintar();
+		vista.limpiarError();
+		vista.anunciar(`Grupo renombrado a ${nombre.trim()}.`);
+	}
+	catch (error) {
+		manejarError(error);
+	}
+}
+
+/**
+ * Borra un grupo tras confirmarlo.
+ *
+ * Aquí sí se pregunta antes, al revés que con las tareas: borrar un grupo afecta a todas las que
+ * contiene y no hay un «deshacer» que lo devuelva. Se avisa de que las tareas **no** se borran,
+ * porque es justo lo que teme quien duda antes de pulsar.
+ *
+ * @param {number} idGrupo
+ */
+async function borrarGrupo(idGrupo) {
+	const grupo = estado.obtenerGrupos().find((cual) => cual.id === idGrupo);
+	if (grupo === undefined) {
+		return;
+	}
+
+	const cuantas = estado.contarProgresoDeGrupo(idGrupo).total;
+	const aviso = (cuantas === 0) ? `¿Borrar el grupo «${grupo.nombre}»?`
+		: `¿Borrar el grupo «${grupo.nombre}»? Sus ${cuantas} tareas no se borran: quedarán sueltas.`;
+	if (!globalThis.confirm(aviso)) {
+		return;
+	}
+
+	try {
+		await api.eliminarGrupo(idGrupo);
+		estado.reemplazarGrupos(await api.consultarGrupos());
+		repintar();
+		vista.limpiarError();
+		vista.anunciar(`Grupo borrado: ${grupo.nombre}. Sus tareas quedan sueltas.`);
+	}
+	catch (error) {
+		manejarError(error);
+	}
+}
+
 /* ------------------------------------------------------- Fondo de la tarjeta */
 
 /**
@@ -539,28 +684,49 @@ function elegirFondo(id) {
 /**
  * Único punto de reordenación. Lo llaman tanto SortableJS como el manejador de teclado.
  *
- * @param {boolean} elDomYaEstaMovido SortableJS mueve el nodo él mismo antes de avisar; el teclado
- * no, así que en ese caso hay que moverlo aquí.
+ * Recibe solo qué tarea, a qué grupo y a qué posición dentro de esa sección; el orden global lo
+ * recompone `estado.js`. Después se repinta entero en vez de mover el nodo a mano: al cambiar de
+ * grupo cambian también las cuentas y las barras de progreso de dos secciones, y llevar eso a mano
+ * sería más código y más frágil que volver a pintar.
  *
- * @param {number} desde
- * @param {number} hasta
- * @param {boolean} [elDomYaEstaMovido] SortableJS mueve el nodo él mismo antes de avisar; el teclado
- * no, así que en ese caso hay que moverlo aquí.
+ * @param {number} id
+ * @param {number | null} idGrupo
+ * @param {number} posicionEnGrupo
  */
-function moverTarea(desde, hasta, elDomYaEstaMovido = false) {
+function moverTarea(id, idGrupo, posicionEnGrupo) {
 	const respaldo = estado.copiarTareas();
-	if (!estado.moverTareaDePosicion(desde, hasta)) {
+	const grupoAnterior = estado.obtenerGrupoDe(id);
+
+	if (!estado.moverTareaAGrupo(id, idGrupo, posicionEnGrupo)) {
 		return;
 	}
 	if (respaldoAntesDeReordenar === null) {
 		respaldoAntesDeReordenar = respaldo;
 	}
-	if (!elDomYaEstaMovido) {
-		vista.moverTarjeta(desde, hasta);
+	repintar();
+
+	// Si ha cambiado de sección hay que contarlo aparte: el orden y la pertenencia son dos recursos
+	// distintos en el servidor.
+	if (grupoAnterior !== idGrupo) {
+		guardarGrupo(id, idGrupo);
 	}
 
 	clearTimeout(temporizadorDeOrden ?? undefined);
 	temporizadorDeOrden = setTimeout(guardarOrden, RETARDO_GUARDADO_DE_ORDEN);
+}
+
+/**
+ * @param {number} id
+ * @param {number | null} idGrupo
+ */
+async function guardarGrupo(id, idGrupo) {
+	try {
+		estado.reemplazarGrupos(await api.cambiarGrupo(id, idGrupo));
+		vista.limpiarError();
+	}
+	catch (error) {
+		manejarError(error);
+	}
 }
 
 async function guardarOrden() {
@@ -689,8 +855,15 @@ async function guardarTexto(id) {
  * @param {KeyboardEvent} evento
  */
 function alPulsarAtajo(evento) {
-	const esAtajoConocido = evento.key === 'n' || evento.key === '/' || evento.key === '?';
+	const esAtajoConocido = evento.key === 'n' || evento.key === '/' || evento.key === '?'
+		|| evento.key === 'Escape';
 	if (!esAtajoConocido || evento.ctrlKey || evento.altKey || evento.metaKey) {
+		return;
+	}
+
+	// Escape cierra el alta que esté abierta antes que nada.
+	if (evento.key === 'Escape') {
+		cerrarLoQueEsteAbierto();
 		return;
 	}
 
@@ -717,7 +890,17 @@ function alPulsarAtajo(evento) {
 		vista.campoBusqueda.focus();
 	}
 	else {
-		vista.campoTexto.focus();
+		vista.mostrarAlta(true);
+	}
+}
+
+/** Escape cierra el formulario que esté desplegado, devolviendo el foco a su botón. */
+function cerrarLoQueEsteAbierto() {
+	if (vista.estaAbiertaElAlta()) {
+		vista.mostrarAlta(false);
+	}
+	else if (vista.estaAbiertaElAltaDeGrupo()) {
+		vista.mostrarAltaDeGrupo(false);
 	}
 }
 
@@ -749,7 +932,7 @@ function esLaPeticionMasReciente(operacion, secuencia) {
 function deshacerCambioOptimista(respaldo, error) {
 	if (respaldo !== null) {
 		estado.reemplazarTareas(respaldo);
-		vista.pintarLista();
+		repintar();
 	}
 	manejarError(error);
 }

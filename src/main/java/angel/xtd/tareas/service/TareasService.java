@@ -13,8 +13,11 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import angel.xtd.tareas.almacen.AlmacenFondos;
+import angel.xtd.tareas.almacen.AlmacenGrupos;
 import angel.xtd.tareas.almacen.AlmacenTareas;
 import angel.xtd.tareas.dto.Fondo;
+import angel.xtd.tareas.dto.Grupo;
+import angel.xtd.tareas.dto.GruposConAsignaciones;
 import angel.xtd.tareas.dto.Tarea;
 import angel.xtd.tareas.error.OrdenInvalidoException;
 import angel.xtd.tareas.error.TareaNoEncontradaException;
@@ -42,25 +45,30 @@ public class TareasService {
 
 	private final AlmacenFondos fondos;
 
-	public TareasService(AlmacenTareas almacen, AlmacenFondos fondos) {
+	private final AlmacenGrupos grupos;
+
+	public TareasService(AlmacenTareas almacen, AlmacenFondos fondos, AlmacenGrupos grupos) {
 		this.almacen = almacen;
 		this.fondos = fondos;
+		this.grupos = grupos;
 	}
 
 	/**
-	 * Al arrancar, descarta los fondos de tareas que ya no existen.
+	 * Al arrancar, descarta los fondos y los grupos de tareas que ya no existen.
 	 *
-	 * <p>Durante el uso normal basta con olvidar el fondo al borrar la tarea, pero los dos archivos
-	 * se escriben por separado: si el proceso muere justo entre las dos escrituras, queda un fondo
-	 * huérfano. Y como el contador de ids se recalcula como {@code max(id) + 1} al cargar, ese id
-	 * puede volver a repartirse y la tarea nueva heredaría un fondo que nadie eligió para ella.
+	 * <p>Durante el uso normal basta con olvidar la asociación al borrar la tarea, pero los archivos
+	 * se escriben por separado: si el proceso muere justo entre dos escrituras, queda un fondo o un
+	 * grupo huérfano. Y como el contador de ids se recalcula como {@code max(id) + 1} al cargar, ese
+	 * id puede volver a repartirse y la tarea nueva heredaría cosas que nadie eligió para ella.
 	 *
-	 * <p>Spring garantiza que los dos almacenes están construidos —y por tanto cargados— antes de
+	 * <p>Spring garantiza que los tres almacenes están construidos —y por tanto cargados— antes de
 	 * inyectarlos aquí, así que este es el primer momento en que se pueden comparar.
 	 */
 	@PostConstruct
-	void descartarFondosHuerfanos() {
-		this.fondos.conservarSolo(this.almacen.consultarTodas().stream().map(Tarea::id).toList());
+	void descartarAsociacionesHuerfanas() {
+		List<Integer> idsQueExisten = this.almacen.consultarTodas().stream().map(Tarea::id).toList();
+		this.fondos.conservarSolo(idsQueExisten);
+		this.grupos.conservarSoloTareas(idsQueExisten);
 	}
 
 	public List<Tarea> consultarTodas() {
@@ -107,11 +115,61 @@ public class TareasService {
 			return tareas.remove(posicion);
 		});
 
-		// Si no se olvidara, el archivo de fondos acumularía tareas que ya no existen y un id
-		// reutilizado tras reiniciar heredaría un fondo que nadie eligió para él.
+		// Si no se olvidaran, los archivos acumularían tareas que ya no existen y un id reutilizado
+		// tras reiniciar heredaría un fondo o un grupo que nadie eligió para él.
 		this.fondos.olvidar(id);
+		this.grupos.olvidarTarea(id);
 
 		log.info("eliminar({}) -> eliminada", id);
+	}
+
+	/* ------------------------------------------------------------------ Grupos */
+
+	public GruposConAsignaciones consultarGrupos() {
+		GruposConAsignaciones resultado = this.grupos.consultarTodo();
+		log.debug("consultarGrupos() -> {} grupos", resultado.grupos().size());
+		return resultado;
+	}
+
+	public Grupo crearGrupo(String nombre) {
+		Grupo resultado = this.grupos.crear(normalizarTexto(nombre));
+		log.info("crearGrupo() -> creado grupo id={}", resultado.id());
+		return resultado;
+	}
+
+	public Grupo renombrarGrupo(int idDeGrupo, String nombre) {
+		Grupo resultado = this.grupos.renombrar(idDeGrupo, normalizarTexto(nombre));
+		log.info("renombrarGrupo({})", idDeGrupo);
+		return resultado;
+	}
+
+	/** Borra el grupo. Sus tareas no se borran: se quedan sueltas. */
+	public void eliminarGrupo(int idDeGrupo) {
+		this.grupos.eliminar(idDeGrupo);
+		log.info("eliminarGrupo({}) -> eliminado", idDeGrupo);
+	}
+
+	public List<Grupo> reordenarGrupos(List<Integer> idsEnOrden) {
+		List<Grupo> resultado = this.grupos.reordenar(idsEnOrden);
+		log.info("reordenarGrupos() -> nuevo orden {}", idsEnOrden);
+		return resultado;
+	}
+
+	/**
+	 * Mete una tarea en un grupo, o la deja suelta si {@code idDeGrupo} es {@code null}.
+	 *
+	 * <p>Se comprueba antes que la tarea exista, por lo mismo que con el fondo: si no, se guardaría
+	 * la pertenencia de algo que no está y quedaría ahí hasta el siguiente arranque.
+	 */
+	public GruposConAsignaciones cambiarGrupo(int id, Integer idDeGrupo) {
+		if (this.almacen.buscarPorId(id).isEmpty()) {
+			throw new TareaNoEncontradaException(id);
+		}
+		this.grupos.asignar(id, idDeGrupo);
+
+		GruposConAsignaciones resultado = this.grupos.consultarTodo();
+		log.info("cambiarGrupo({}, {})", id, idDeGrupo);
+		return resultado;
 	}
 
 	/* -------------------------------------------------------- Fondo de las tarjetas */

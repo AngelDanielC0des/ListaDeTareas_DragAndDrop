@@ -29,6 +29,28 @@
  */
 
 /**
+ * Un grupo bajo el que se agrupan tareas.
+ *
+ * El grupo no es un campo de la tarea y no puede serlo: una tarea son exactamente tres campos. La
+ * pertenencia viaja aparte, en el mapa de asignaciones.
+ *
+ * @typedef {object} Grupo
+ * @property {number} id identidad del grupo; no cambia al reordenar
+ * @property {string} nombre lo que se enseña en la cabecera de la sección
+ */
+
+/**
+ * Los grupos y a qué grupo pertenece cada tarea, tal y como los manda el servidor.
+ *
+ * Las claves de `asignaciones` llegan como cadenas porque un objeto JSON no tiene claves numéricas,
+ * pero se consultan con el id numérico: JavaScript convierte el índice por su cuenta.
+ *
+ * @typedef {object} GruposConAsignaciones
+ * @property {Grupo[]} grupos en el orden en que deben pintarse
+ * @property {Record<string, number>} asignaciones id de tarea al id de su grupo
+ */
+
+/**
  * Qué fondo tiene cada tarea, indexado por id. Solo aparecen las que tienen uno.
  *
  * Las claves llegan como cadenas porque un objeto JSON no tiene claves numéricas, pero se consultan

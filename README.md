@@ -1,13 +1,13 @@
 # Lista de tareas
 
 [![build](https://github.com/AngelDanielC0des/ListaDeTareas_DragAndDrop/actions/workflows/build.yml/badge.svg)](https://github.com/AngelDanielC0des/ListaDeTareas_DragAndDrop/actions/workflows/build.yml)
-[![cobertura](https://img.shields.io/badge/cobertura-86%25%20líneas-brightgreen)](#pruebas)
-[![tests](https://img.shields.io/badge/tests-156-brightgreen)](#pruebas)
+[![cobertura](https://img.shields.io/badge/cobertura-83%25%20líneas-brightgreen)](#pruebas)
+[![tests](https://img.shields.io/badge/tests-192-brightgreen)](#pruebas)
 [![licencia](https://img.shields.io/badge/licencia-MIT-blue)](LICENSE)
 
-Gestor de tareas con reordenación por arrastre, búsqueda y filtros: **API REST en Java 21 con
-Spring Boot 4.1** y un frontend en HTML, CSS y JavaScript **sin framework ni paso de compilación**.
-Los datos se guardan en archivos JSON; no hace falta base de datos.
+Gestor de tareas con **grupos**, reordenación por arrastre, búsqueda y filtros: **API REST en Java 21
+con Spring Boot 4.1** y un frontend en HTML, CSS y JavaScript **sin framework ni paso de
+compilación**. Los datos se guardan en archivos JSON; no hace falta base de datos.
 
 <!--
 	PENDIENTE, en dos pasos:
@@ -32,8 +32,8 @@ Es una lista de tareas, que es el ejemplo más trillado que existe. Lo que puede
 lectura son las restricciones que se le pusieron encima y cómo se resolvieron:
 
 - **Una tarea son exactamente tres campos** —`id`, `texto` y `completada`— y no se podía añadir
-  ninguno más. Eso obligó a que el orden fuese la posición en el array y a que el fondo de cada
-  tarjeta viva en su propio recurso. La consecuencia buena es que **reordenar no cambia ningún
+  ninguno más. Eso obligó a que el orden fuese la posición en el array, y a que **el fondo y el
+  grupo** de cada tarea vivan en sus propios recursos en vez de ensanchar el modelo. La consecuencia buena es que **reordenar no cambia ningún
   `id`**, así que un `DELETE` que salió justo antes no acaba borrando otra tarea.
 - **Sin paso de compilación en el frontend.** Los archivos que sirve Spring son los archivos fuente:
   sin `node_modules`, sin empaquetador, sin transpilar. Y aun así **los tipos se verifican en la
@@ -125,6 +125,23 @@ java -jar target\tareas-0.0.1-SNAPSHOT.jar --server.port=9000 --app.almacen.ruta
 - **Tema**: claro, oscuro o el del sistema, con el selector de la cabecera. La elección se recuerda
   en este navegador.
 
+## Grupos
+
+Las tareas se agrupan en secciones con nombre —«Mañana», «Casa»— y cada grupo lleva su propia barra
+de progreso, que avanza según se completan sus tareas. Las que no están en ninguno aparecen al final,
+sueltas y sin barra: no son un conjunto que se pueda dar por terminado.
+
+**El grupo no es un campo de la tarea**, y no podía serlo. Vive en `datos/grupos.json` junto con las
+asignaciones, siguiendo el mismo patrón que los fondos. Los dos van en el mismo archivo porque por
+separado no sirven de nada, y dos escrituras podrían dejar asignaciones apuntando a un grupo
+inexistente.
+
+**El orden tampoco se duplica:** dentro de un grupo, el orden de sus tareas es el orden relativo que
+ya tienen en la lista global. No hay una segunda ordenación por grupo que mantener sincronizada.
+
+Borrar un grupo **no borra sus tareas**: quedan sueltas. Un grupo es una forma de ordenar lo que hay,
+no un contenedor del que las tareas dependan para existir.
+
 ## Buscar y filtrar
 
 Con muchas tareas la lista se hace incómoda, así que hay un campo de búsqueda y tres estados: todas,
@@ -143,7 +160,8 @@ motivo aparente.
 |---|---|
 | <kbd>n</kbd> | Escribir una tarea nueva |
 | <kbd>/</kbd> | Buscar entre las tareas |
-| <kbd>Ctrl</kbd> + <kbd>↑</kbd> / <kbd>↓</kbd> | Mover la tarea, con el foco en su asa |
+| <kbd>Ctrl</kbd> + <kbd>↑</kbd> / <kbd>↓</kbd> | Mover la tarea dentro de su grupo, con el foco en su asa |
+| <kbd>Ctrl</kbd> + <kbd>←</kbd> / <kbd>→</kbd> | Cambiar la tarea de grupo sin usar el ratón |
 | <kbd>Intro</kbd> | Confirmar la edición |
 | <kbd>Mayús</kbd> + <kbd>Intro</kbd> | Salto de línea dentro de una tarea |
 | <kbd>Esc</kbd> | Cancelar la edición o cerrar una ventana |
@@ -392,9 +410,16 @@ devolución del foco al botón que lo abrió, sin ARIA escrita a mano.
 
 ## Diseño e interfaz
 
-Hay tema claro y oscuro, que por defecto sigue al del sistema. La rejilla es de 2 columnas en móvil,
-3 a partir de 600 px y 4 a partir de 1024 px, y cada tarjeta toma su altura natural; el texto se
-recorta a 2 líneas hasta que se despliega.
+Hay tema claro y oscuro con un interruptor de dos estados: al arrancar sigue al del sistema, y en
+cuanto se pulsa esa elección manda.
+
+Las tareas van **en una sola columna**, agrupadas en secciones. Antes eran una rejilla de 2 a 4
+columnas, y se cambió al añadir los grupos: agrupar y encolumnar compiten, porque una rejilla con
+pocas tareas por grupo deja filas a medias. Cada tarjeta toma su altura natural y el texto se recorta
+a 2 líneas hasta que se despliega.
+
+Las completadas **no se tachan**: se atenúan en su sitio y se marca su casilla. Tachar dificulta
+releer lo que ya está hecho, que es justo lo que se quiere poder hacer al repasar.
 
 Por debajo de 480 px las acciones de la tarjeta se quedan solo con su icono: con dos columnas la
 tarjeta mide unos 142 px y tres botones con su palabra no caben. El nombre para lectores de pantalla
@@ -447,14 +472,14 @@ la comprobación de tipos.
 
 ## Pruebas
 
-**156 pruebas**: 83 del servidor y 73 del navegador.
+**192 pruebas**: 106 del servidor y 86 del navegador.
 
 ```bash
 .\mvnw.cmd verify   # las de Java, más el informe de cobertura
 npm test            # las del frontend
 ```
 
-Las del servidor cubren el **86 % de las líneas y el 71 % de las ramas**; el informe de JaCoCo queda
+Las del servidor cubren el **83 % de las líneas y el 76 % de las ramas**; el informe de JaCoCo queda
 en `target/site/jacoco/index.html`. No hay umbral que rompa la construcción a propósito: perseguir un
 porcentaje lleva a escribir pruebas que no comprueban nada.
 
@@ -479,5 +504,6 @@ En el servidor, Spring Boot más [springdoc](https://springdoc.org/) para public
 navegador, **una sola**:
 [SortableJS](https://github.com/SortableJS/Sortable) 1.15.7 (MIT), vendorizada en
 `static/js/vendor/` para que la aplicación funcione sin conexión y sin paso de compilación. Se
-descartó hacer el arrastre a mano porque el layout es una rejilla de 2 a 4 columnas con tarjetas de
-altura variable, donde calcular el destino es bastante más que comparar una coordenada.
+descartó hacer el arrastre a mano porque hay **varias listas conectadas** —una por grupo— entre las
+que se puede mover una tarjeta, con autoscroll y sin confundir el arrastre con un scroll táctil.
+Resolver eso a mano es bastante más que comparar una coordenada.

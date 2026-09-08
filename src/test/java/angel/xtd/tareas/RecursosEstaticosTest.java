@@ -58,15 +58,52 @@ class RecursosEstaticosTest {
 		assertThat(leerIndex()).contains("id=\"anuncios\"").contains("aria-live=\"polite\"");
 	}
 
+	/**
+	 * El tema pasó de tres opciones a un interruptor de dos.
+	 *
+	 * <p>Ya no hay una opción «sistema»: seguir al sistema es lo que ocurre mientras no haya nada
+	 * guardado, no algo que se pueda elegir. Por eso el control es un botón con {@code aria-pressed}
+	 * —alterna un estado— y no un grupo de radios, que sería para elegir entre opciones.
+	 */
 	@Test
-	@DisplayName("están el selector de tema y la barra de progreso")
-	void tieneSelectorDeTemaYProgreso() throws IOException {
+	@DisplayName("está el interruptor de tema y la barra de progreso")
+	void tieneInterruptorDeTemaYProgreso() throws IOException {
 		String html = leerIndex();
 
 		assertThat(html).contains("id=\"progreso\"");
-		for (String tema : new String[] { "claro", "oscuro", "sistema" }) {
-			assertThat(html).as("debe existir la opción de tema «%s»", tema).contains("value=\"" + tema + "\"");
+		assertThat(html).as("el tema es un botón que alterna, no un grupo de opciones")
+			.contains("id=\"boton-tema\"")
+			.contains("aria-pressed");
+		assertThat(html).as("«sistema» dejó de ser una opción elegible").doesNotContain("value=\"sistema\"");
+	}
+
+	/**
+	 * Los elementos que {@code vista.js} exige al cargar. Si falta alguno, la aplicación no arranca
+	 * en el navegador: {@code exigirElemento} lanza. Aquí salta antes, sin necesitar Node.
+	 */
+	@Test
+	@DisplayName("están las secciones, las dos altas plegables y sus plantillas")
+	void tieneLoQueElJavaScriptExige() throws IOException {
+		String html = leerIndex();
+
+		for (String id : new String[] { "secciones", "plantilla-seccion", "plantilla-tarea", "boton-abrir-alta",
+				"formulario-nueva", "boton-abrir-grupo", "formulario-grupo", "boton-tema" }) {
+			assertThat(html).as("vista.js busca #%s al cargar", id).contains("id=\"" + id + "\"");
 		}
+	}
+
+	/**
+	 * El botón que despliega el alta gobierna la visibilidad de un formulario, así que sin
+	 * {@code aria-expanded} quien usa un lector de pantalla no sabría que hay algo que se abre.
+	 */
+	@Test
+	@DisplayName("los botones que despliegan un formulario declaran aria-expanded")
+	void lasAltasPlegablesDeclaranSuEstado() throws IOException {
+		String html = leerIndex();
+
+		assertThat(html.split("aria-expanded", -1).length - 1)
+			.as("lo llevan las dos altas y el botón de «Ver más» de la plantilla")
+			.isGreaterThanOrEqualTo(3);
 	}
 
 	/**

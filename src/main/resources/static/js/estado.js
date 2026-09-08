@@ -82,6 +82,15 @@ export function reemplazarTareas(nuevas) {
 	}
 }
 
+/**
+ * Saca del mapa de grupos una tarea que ya no está, para no pintar secciones con huecos.
+ *
+ * @param {number} id
+ */
+function olvidarGrupoDe(id) {
+	delete grupoPorTarea[id];
+}
+
 /** Copia superficial para poder deshacer un cambio optimista si el servidor lo rechaza. */
 export function copiarTareas() {
 	const resultado = tareas.map((tarea) => ({ ...tarea }));
@@ -140,38 +149,143 @@ export function quitarTarea(id) {
 		tareas.splice(posicion, 1);
 	}
 	tareasDesplegadas.delete(id);
+	olvidarGrupoDe(id);
 	if (edicionEnCurso?.id === id) {
 		edicionEnCurso = null;
 	}
 }
 
-/**
- * Mueve una tarea de una posición a otra. Es la operación que produce el nuevo orden.
- *
- * @param {number} desde
- * @param {number} hasta
- * @returns {boolean} si el movimiento era válido y se ha aplicado
- */
-export function moverTareaDePosicion(desde, hasta) {
-	const esMovimientoValido = desde !== hasta
-		&& desde >= 0 && hasta >= 0
-		&& desde < tareas.length && hasta < tareas.length;
-
-	let resultado;
-	if (esMovimientoValido) {
-		const [movida] = tareas.splice(desde, 1);
-		tareas.splice(hasta, 0, movida);
-		resultado = true;
-	}
-	else {
-		resultado = false;
-	}
-	return resultado;
-}
-
 export function obtenerIdsEnOrden() {
 	const resultado = tareas.map((tarea) => tarea.id);
 	return resultado;
+}
+
+/* --------------------------------------------------------------- Grupos */
+
+/**
+ * Los grupos, en su orden. El índice ES la posición del grupo, igual que con las tareas.
+ *
+ * @type {import('./tipos.js').Grupo[]}
+ */
+let grupos = [];
+
+/**
+ * A qué grupo pertenece cada tarea. Solo aparecen las que están en alguno.
+ *
+ * @type {Record<string, number>}
+ */
+let grupoPorTarea = {};
+
+/** @param {import('./tipos.js').GruposConAsignaciones} nuevos */
+export function reemplazarGrupos(nuevos) {
+	grupos = [...(nuevos.grupos ?? [])];
+	grupoPorTarea = { ...(nuevos.asignaciones ?? {}) };
+}
+
+export function obtenerGrupos() {
+	const resultado = grupos;
+	return resultado;
+}
+
+/**
+ * El id del grupo de una tarea, o `null` si está suelta.
+ *
+ * @param {number} id
+ * @returns {number | null}
+ */
+export function obtenerGrupoDe(id) {
+	const resultado = grupoPorTarea[id] ?? null;
+	return resultado;
+}
+
+/**
+ * Las tareas visibles de un grupo, o las sueltas si se pasa `null`.
+ *
+ * Se filtra sobre `obtenerTareasVisibles()` y no sobre la lista completa para que el buscador y los
+ * filtros de estado sigan valiendo dentro de cada sección.
+ *
+ * Recorre la lista entera una vez por sección, así que pintar G grupos con N tareas cuesta O(G·N).
+ * Se deja así a propósito: agrupar en una pasada exigiría construir un mapa auxiliar en cada
+ * repintado, y con las cantidades de una lista de tareas —unos pocos grupos y decenas de tareas— la
+ * diferencia no llega a medirse. Es el mismo criterio que en `buscarPosicionDeTarea`.
+ *
+ * @param {number | null} idGrupo
+ */
+export function obtenerTareasDeGrupo(idGrupo) {
+	const resultado = obtenerTareasVisibles().filter((tarea) => obtenerGrupoDe(tarea.id) === idGrupo);
+	return resultado;
+}
+
+/**
+ * Cuántas tareas de un grupo hay y cuántas están completadas.
+ *
+ * Cuenta sobre **todas** las del grupo, no sobre las visibles: una barra de progreso que cambiara al
+ * escribir en el buscador estaría midiendo el filtro y no el trabajo hecho.
+ *
+ * @param {number} idGrupo
+ */
+export function contarProgresoDeGrupo(idGrupo) {
+	const delGrupo = tareas.filter((tarea) => obtenerGrupoDe(tarea.id) === idGrupo);
+	const resultado = {
+		total: delGrupo.length,
+		completadas: delGrupo.filter((tarea) => tarea.completada).length
+	};
+	return resultado;
+}
+
+/**
+ * Mueve una tarea a un grupo y a una posición dentro de él, y recompone el orden global.
+ *
+ * **Todo sale del estado, no del DOM.** SortableJS ya ha movido el nodo cuando avisa, pero de él
+ * solo se toman tres datos —qué tarea, a qué grupo y a qué posición dentro de esa sección— y el
+ * orden completo se reconstruye aquí. Leer el orden del DOM sería más corto y rompería la regla que
+ * sostiene todo el cliente: el DOM es una proyección de este módulo, nunca al revés.
+ *
+ * El orden global pasa a ser la concatenación de las secciones tal y como se ven: primero cada grupo
+ * en su orden, y al final las sueltas. Así lo que el usuario ve y lo que se persiste coinciden.
+ *
+ * @param {number} id
+ * @param {number | null} idGrupo grupo de destino, o null para dejarla suelta
+ * @param {number} posicionEnGrupo dónde cae dentro de esa sección
+ * @returns {boolean} si el movimiento era válido y se ha aplicado
+ */
+export function moverTareaAGrupo(id, idGrupo, posicionEnGrupo) {
+	const movida = buscarTareaPorId(id);
+	if (movida === null) {
+		return false;
+	}
+
+	if (idGrupo === null) {
+		delete grupoPorTarea[id];
+	}
+	else {
+		grupoPorTarea[id] = idGrupo;
+	}
+
+	// Se saca de donde estuviera y se mete en su sitio dentro de su sección nueva.
+	const enSuGrupo = tareas.filter((tarea) => tarea.id !== id && obtenerGrupoDe(tarea.id) === idGrupo);
+	const destino = Math.min(Math.max(posicionEnGrupo, 0), enSuGrupo.length);
+	enSuGrupo.splice(destino, 0, movida);
+
+    // El orden global se recompone sección a sección, en el mismo orden en que se pintan.
+	const reordenadas = [];
+	for (const grupo of grupos) {
+		if (grupo.id === idGrupo) {
+			reordenadas.push(...enSuGrupo);
+		}
+		else {
+			reordenadas.push(...tareas.filter((tarea) => obtenerGrupoDe(tarea.id) === grupo.id));
+		}
+	}
+	if (idGrupo === null) {
+		reordenadas.push(...enSuGrupo);
+	}
+	else {
+		reordenadas.push(...tareas.filter((tarea) => obtenerGrupoDe(tarea.id) === null));
+	}
+
+	tareas = reordenadas;
+	return true;
 }
 
 /* --------------------------------------------------------------- Filtro */

@@ -29,29 +29,6 @@ beforeEach(() => {
 
 describe('orden de las tareas', () => {
 
-	it('mueve una tarea hacia abajo respetando a las demás', () => {
-		expect(estado.moverTareaDePosicion(0, 2)).toBe(true);
-
-		expect(estado.obtenerIdsEnOrden()).toEqual([2, 3, 1]);
-	});
-
-	it('mueve una tarea hacia arriba', () => {
-		expect(estado.moverTareaDePosicion(2, 0)).toBe(true);
-
-		expect(estado.obtenerIdsEnOrden()).toEqual([3, 1, 2]);
-	});
-
-	it.each([
-		['el origen y el destino son el mismo', 1, 1],
-		['el destino es negativo', 1, -1],
-		['el destino se sale por el final', 1, 3],
-		['el origen no existe', 9, 0]
-	])('no hace nada y avisa cuando %s', (_caso, desde, hasta) => {
-		expect(estado.moverTareaDePosicion(desde, hasta)).toBe(false);
-
-		expect(estado.obtenerIdsEnOrden()).toEqual([1, 2, 3]);
-	});
-
 	/** Es la que usa «Deshacer»: la tarea tiene que volver a su sitio, no al final. */
 	it('reinserta una tarea en su posición original', () => {
 		estado.quitarTarea(2);
@@ -239,6 +216,84 @@ describe('filtro y búsqueda', () => {
 		estado.filtrarPorEstado('completadas');
 
 		expect(estado.obtenerIdsEnOrden()).toEqual([1, 2, 3]);
+	});
+
+});
+
+describe('mover tareas entre grupos', () => {
+
+	/** Dos grupos con dos tareas cada uno, más una suelta, para poder mover en todas direcciones. */
+	beforeEach(() => {
+		estado.reemplazarTareas([
+			{ id: 1, texto: 'a', completada: false },
+			{ id: 2, texto: 'b', completada: false },
+			{ id: 3, texto: 'c', completada: false },
+			{ id: 4, texto: 'd', completada: false },
+			{ id: 5, texto: 'suelta', completada: false }
+		]);
+		estado.reemplazarGrupos({
+			grupos: [{ id: 10, nombre: 'Mañana' }, { id: 20, nombre: 'Casa' }],
+			asignaciones: { 1: 10, 2: 10, 3: 20, 4: 20 }
+		});
+	});
+
+	it('mueve una tarea dentro de su propio grupo', () => {
+		expect(estado.moverTareaAGrupo(2, 10, 0)).toBe(true);
+
+		expect(estado.obtenerTareasDeGrupo(10).map((t) => t.id)).toEqual([2, 1]);
+	});
+
+	it('mueve una tarea a otro grupo y la deja en la posición pedida', () => {
+		estado.moverTareaAGrupo(1, 20, 1);
+
+		expect(estado.obtenerGrupoDe(1)).toBe(20);
+		expect(estado.obtenerTareasDeGrupo(20).map((t) => t.id)).toEqual([3, 1, 4]);
+		expect(estado.obtenerTareasDeGrupo(10).map((t) => t.id)).toEqual([2]);
+	});
+
+	it('saca una tarea de su grupo al moverla a las sueltas', () => {
+		estado.moverTareaAGrupo(1, null, 0);
+
+		expect(estado.obtenerGrupoDe(1)).toBeNull();
+		expect(estado.obtenerTareasDeGrupo(null).map((t) => t.id)).toEqual([1, 5]);
+	});
+
+	it('mete una tarea suelta en un grupo', () => {
+		estado.moverTareaAGrupo(5, 10, 0);
+
+		expect(estado.obtenerGrupoDe(5)).toBe(10);
+		expect(estado.obtenerTareasDeGrupo(null)).toEqual([]);
+	});
+
+	/**
+	 * El orden global pasa a ser la concatenación de las secciones tal y como se ven: cada grupo en
+	 * su orden y al final las sueltas. Así lo que el usuario ve y lo que se persiste coinciden, y es
+	 * lo que se manda a `PUT /tarea/orden`.
+	 */
+	it('recompone el orden global como la concatenación de las secciones', () => {
+		estado.moverTareaAGrupo(5, 10, 1);
+
+		expect(estado.obtenerIdsEnOrden()).toEqual([1, 5, 2, 3, 4]);
+	});
+
+	it('acota la posición en vez de dejar un hueco', () => {
+		estado.moverTareaAGrupo(5, 10, 99);
+
+		expect(estado.obtenerTareasDeGrupo(10).map((t) => t.id)).toEqual([1, 2, 5]);
+	});
+
+	it('avisa y no hace nada si la tarea no existe', () => {
+		expect(estado.moverTareaAGrupo(99, 10, 0)).toBe(false);
+
+		expect(estado.obtenerIdsEnOrden()).toEqual([1, 2, 3, 4, 5]);
+	});
+
+	it('no pierde ninguna tarea por el camino', () => {
+		estado.moverTareaAGrupo(3, 10, 0);
+		estado.moverTareaAGrupo(5, 20, 0);
+		estado.moverTareaAGrupo(1, null, 0);
+
+		expect(estado.obtenerIdsEnOrden().sort()).toEqual([1, 2, 3, 4, 5]);
 	});
 
 });

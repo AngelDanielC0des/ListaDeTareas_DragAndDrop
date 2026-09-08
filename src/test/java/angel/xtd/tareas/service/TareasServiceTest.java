@@ -15,9 +15,11 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import angel.xtd.tareas.almacen.AlmacenFondos;
+import angel.xtd.tareas.almacen.AlmacenGrupos;
 import angel.xtd.tareas.almacen.AlmacenTareas;
 import angel.xtd.tareas.config.PropiedadesAlmacen;
 import angel.xtd.tareas.dto.Fondo;
+import angel.xtd.tareas.dto.Grupo;
 import angel.xtd.tareas.dto.Tarea;
 import angel.xtd.tareas.error.OrdenInvalidoException;
 import angel.xtd.tareas.error.TareaNoEncontradaException;
@@ -42,7 +44,13 @@ class TareasServiceTest {
 	@BeforeEach
 	void preparar() {
 		this.archivo = this.directorio.resolve("tareas.json");
-		this.servicio = new TareasService(nuevoAlmacen(), nuevoAlmacenDeFondos());
+		this.servicio = new TareasService(nuevoAlmacen(), nuevoAlmacenDeFondos(), nuevoAlmacenDeGrupos());
+	}
+
+	private AlmacenGrupos nuevoAlmacenDeGrupos() {
+		AlmacenGrupos almacen = new AlmacenGrupos(JsonMapper.builder().build(), propiedades());
+		almacen.cargarDesdeArchivo();
+		return almacen;
 	}
 
 	private AlmacenFondos nuevoAlmacenDeFondos() {
@@ -52,7 +60,8 @@ class TareasServiceTest {
 	}
 
 	private PropiedadesAlmacen propiedades() {
-		return new PropiedadesAlmacen(this.archivo.toString(), this.directorio.resolve("fondos.json").toString());
+		return new PropiedadesAlmacen(this.archivo.toString(), this.directorio.resolve("fondos.json").toString(),
+				this.directorio.resolve("grupos.json").toString());
 	}
 
 	private AlmacenTareas nuevoAlmacen() {
@@ -205,7 +214,8 @@ class TareasServiceTest {
 		Tarea tres = this.servicio.crear("Tres");
 		this.servicio.reordenar(List.of(tres.id(), uno.id(), dos.id()));
 
-		TareasService servicioReiniciado = new TareasService(nuevoAlmacen(), nuevoAlmacenDeFondos());
+		TareasService servicioReiniciado = new TareasService(nuevoAlmacen(), nuevoAlmacenDeFondos(),
+				nuevoAlmacenDeGrupos());
 
 		assertThat(servicioReiniciado.consultarTodas()).extracting(Tarea::id)
 			.containsExactly(tres.id(), uno.id(), dos.id());
@@ -251,8 +261,8 @@ class TareasServiceTest {
 		AlmacenFondos fondos = nuevoAlmacenDeFondos();
 		fondos.asignar(999, Fondo.AURORA);
 
-		TareasService servicioReiniciado = new TareasService(nuevoAlmacen(), fondos);
-		servicioReiniciado.descartarFondosHuerfanos();
+		TareasService servicioReiniciado = new TareasService(nuevoAlmacen(), fondos, nuevoAlmacenDeGrupos());
+		servicioReiniciado.descartarAsociacionesHuerfanas();
 
 		assertThat(servicioReiniciado.consultarFondos()).containsOnlyKeys(uno.id());
 	}
@@ -275,6 +285,80 @@ class TareasServiceTest {
 		assertThat(this.servicio.consultarFondos())
 			.as("el fondo de una tarea borrada no debe sobrevivir")
 			.doesNotContainKey(tarea.id());
+	}
+
+	/* ------------------------------------------------------------------ Grupos */
+
+	/**
+	 * El servicio saca la tarea de su grupo al borrarla. Que {@code AlmacenGrupos} sepa olvidar ya
+	 * está probado; lo que se comprueba aquí es que alguien se lo pida.
+	 */
+	@Test
+	@DisplayName("borrar una tarea la saca también de su grupo")
+	void borrarUnaTareaLaSacaDeSuGrupo() {
+		Tarea tarea = this.servicio.crear("En un grupo");
+		Grupo grupo = this.servicio.crearGrupo("Mañana");
+		this.servicio.cambiarGrupo(tarea.id(), grupo.id());
+		assertThat(this.servicio.consultarGrupos().asignaciones()).containsKey(tarea.id());
+
+		this.servicio.eliminar(tarea.id());
+
+		assertThat(this.servicio.consultarGrupos().asignaciones())
+			.as("la asignación de una tarea borrada no debe sobrevivir")
+			.doesNotContainKey(tarea.id());
+	}
+
+	@Test
+	@DisplayName("meter en un grupo una tarea que no existe lanza TareaNoEncontradaException")
+	void cambiarElGrupoDeUnaTareaInexistente() {
+		Grupo grupo = this.servicio.crearGrupo("Mañana");
+
+		assertThatExceptionOfType(TareaNoEncontradaException.class)
+			.isThrownBy(() -> this.servicio.cambiarGrupo(99, grupo.id()));
+	}
+
+	@Test
+	@DisplayName("borrar un grupo no borra sus tareas")
+	void borrarUnGrupoNoBorraSusTareas() {
+		Tarea tarea = this.servicio.crear("Sobrevive");
+		Grupo grupo = this.servicio.crearGrupo("Mañana");
+		this.servicio.cambiarGrupo(tarea.id(), grupo.id());
+
+		this.servicio.eliminarGrupo(grupo.id());
+
+		assertThat(this.servicio.consultarTodas()).extracting(Tarea::id).containsExactly(tarea.id());
+		assertThat(this.servicio.consultarGrupos().asignaciones()).isEmpty();
+	}
+
+	/**
+	 * Si el proceso muere entre la escritura de tareas.json y la de grupos.json queda una asignación
+	 * huérfana, y como el contador de ids se recalcula al cargar, ese id puede repartirse otra vez.
+	 */
+	@Test
+	@DisplayName("al arrancar se descartan las asignaciones de tareas que ya no existen")
+	void alArrancarSeDescartanLasAsignacionesHuerfanas() {
+		AlmacenGrupos grupos = nuevoAlmacenDeGrupos();
+		Grupo grupo = grupos.crear("Mañana");
+		grupos.asignar(999, grupo.id());
+
+		TareasService servicioReiniciado = new TareasService(nuevoAlmacen(), nuevoAlmacenDeFondos(), grupos);
+		servicioReiniciado.descartarAsociacionesHuerfanas();
+
+		assertThat(grupos.consultarTodo().asignaciones()).isEmpty();
+	}
+
+	@Test
+	@DisplayName("los grupos y sus tareas sobreviven a un reinicio")
+	void losGruposSobrevivenAlReinicio() {
+		Tarea tarea = this.servicio.crear("Con grupo");
+		Grupo grupo = this.servicio.crearGrupo("Mañana");
+		this.servicio.cambiarGrupo(tarea.id(), grupo.id());
+
+		TareasService reiniciado = new TareasService(nuevoAlmacen(), nuevoAlmacenDeFondos(),
+				nuevoAlmacenDeGrupos());
+
+		assertThat(reiniciado.consultarGrupos().grupos()).extracting(Grupo::nombre).containsExactly("Mañana");
+		assertThat(reiniciado.consultarGrupos().asignaciones()).containsEntry(tarea.id(), grupo.id());
 	}
 
 }

@@ -36,7 +36,8 @@ class AlmacenTareasTest {
 
 	private AlmacenTareas nuevoAlmacen(Path rutaDelArchivo) {
 		AlmacenTareas almacen = new AlmacenTareas(JsonMapper.builder().build(),
-				new PropiedadesAlmacen(rutaDelArchivo.toString(), this.directorio.resolve("fondos.json").toString()));
+				new PropiedadesAlmacen(rutaDelArchivo.toString(), this.directorio.resolve("fondos.json").toString(),
+						this.directorio.resolve("grupos.json").toString()));
 		almacen.cargarDesdeArchivo();
 		return almacen;
 	}
@@ -215,7 +216,8 @@ class AlmacenTareasTest {
 				""", StandardCharsets.UTF_8);
 
 		AlmacenTareas almacen = new AlmacenTareas(JsonMapper.builder().build(),
-				new PropiedadesAlmacen(this.archivo.toString(), this.directorio.resolve("fondos.json").toString()));
+				new PropiedadesAlmacen(this.archivo.toString(), this.directorio.resolve("fondos.json").toString(),
+						this.directorio.resolve("grupos.json").toString()));
 
 		assertThatExceptionOfType(AlmacenamientoException.class).isThrownBy(almacen::cargarDesdeArchivo)
 			.withMessageContaining("más de una vez");

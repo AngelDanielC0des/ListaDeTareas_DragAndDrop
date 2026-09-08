@@ -24,7 +24,12 @@ import angel.xtd.tareas.dto.CambiarCompletadaPeticion;
 import angel.xtd.tareas.dto.ConfiguracionTareas;
 import angel.xtd.tareas.dto.CambiarFondoPeticion;
 import angel.xtd.tareas.dto.CrearTareaPeticion;
+import angel.xtd.tareas.dto.CambiarGrupoPeticion;
+import angel.xtd.tareas.dto.CrearGrupoPeticion;
 import angel.xtd.tareas.dto.Fondo;
+import angel.xtd.tareas.dto.Grupo;
+import angel.xtd.tareas.dto.GruposConAsignaciones;
+import angel.xtd.tareas.dto.ReordenarGruposPeticion;
 import angel.xtd.tareas.dto.ReordenarPeticion;
 import angel.xtd.tareas.dto.Tarea;
 import angel.xtd.tareas.service.TareasService;
@@ -198,6 +203,94 @@ public class TareasController {
 	 * <p>El segmento literal {@code /orden} tiene prioridad sobre la plantilla {@code /{id}} en el
 	 * emparejamiento de rutas de Spring, así que no hay ambigüedad con {@code PUT /tarea/{id}}.
 	 */
+	/* ------------------------------------------------------------------ Grupos */
+
+	/*
+	 * Los grupos cuelgan de /tarea aunque sean otro recurso, porque el enunciado pide un solo
+	 * controlador. No hay ambigüedad de rutas: /tarea/grupo/{id} tiene tres segmentos y /tarea/{id}
+	 * dos, y el literal /tarea/grupo/orden gana a la plantilla /tarea/grupo/{id}.
+	 */
+
+	@GetMapping("/grupo")
+	@Operation(summary = "Consultar los grupos y a qué grupo pertenece cada tarea",
+			description = "Van juntos en una sola petición porque por separado no sirven de nada: los grupos "
+					+ "sin saber quién pertenece a cuál no permiten pintar, y al revés tampoco.")
+	public GruposConAsignaciones consultarGrupos() {
+		GruposConAsignaciones resultado = this.servicio.consultarGrupos();
+		log.debug("GET /tarea/grupo -> {} grupos", resultado.grupos().size());
+		return resultado;
+	}
+
+	@PostMapping("/grupo")
+	@Operation(summary = "Crear un grupo", description = "Se añade al final. El id lo asigna el servidor.")
+	@ApiResponse(responseCode = "201", description = "Creado; la cabecera Location apunta al grupo nuevo")
+	@ApiResponse(responseCode = "400", description = "El nombre está vacío o supera el límite",
+			content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+	public ResponseEntity<Grupo> crearGrupo(@Valid @RequestBody CrearGrupoPeticion peticion) {
+		Grupo creado = this.servicio.crearGrupo(peticion.nombre());
+		ResponseEntity<Grupo> resultado = ResponseEntity.created(URI.create("/tarea/grupo/" + creado.id()))
+			.body(creado);
+		log.info("POST /tarea/grupo -> 201 id={}", creado.id());
+		return resultado;
+	}
+
+	@PutMapping("/grupo/{idGrupo}")
+	@Operation(summary = "Renombrar un grupo", description = "Conserva el id y la posición.")
+	@ApiResponse(responseCode = "200", description = "Renombrado")
+	@ApiResponse(responseCode = "400", description = "El nombre está vacío o supera el límite",
+			content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+	@ApiResponse(responseCode = "404", description = "No hay ningún grupo con ese id",
+			content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+	public Grupo renombrarGrupo(@PathVariable int idGrupo, @Valid @RequestBody CrearGrupoPeticion peticion) {
+		Grupo resultado = this.servicio.renombrarGrupo(idGrupo, peticion.nombre());
+		log.info("PUT /tarea/grupo/{} -> 200", idGrupo);
+		return resultado;
+	}
+
+	@DeleteMapping("/grupo/{idGrupo}")
+	@ResponseStatus(HttpStatus.NO_CONTENT)
+	@Operation(summary = "Borrar un grupo",
+			description = "**Sus tareas no se borran**: se quedan sueltas, fuera de toda sección. Un grupo "
+					+ "es una forma de ordenar lo que hay, no un contenedor del que las tareas dependan.")
+	@ApiResponse(responseCode = "204", description = "Borrado; no se devuelve cuerpo")
+	@ApiResponse(responseCode = "404", description = "No hay ningún grupo con ese id",
+			content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+	public void eliminarGrupo(@PathVariable int idGrupo) {
+		this.servicio.eliminarGrupo(idGrupo);
+		log.info("DELETE /tarea/grupo/{} -> 204", idGrupo);
+	}
+
+	@PutMapping("/grupo/orden")
+	@Operation(summary = "Reordenar los grupos",
+			description = "Recibe todos los ids de grupo en el orden deseado. Ningún id cambia: lo que se "
+					+ "mueve es la posición.")
+	@ApiResponse(responseCode = "200", description = "Aplicado; se devuelven los grupos en su nuevo orden")
+	@ApiResponse(responseCode = "400", description = "La lista de ids viene vacía",
+			content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+	@ApiResponse(responseCode = "409", description = "Los ids no son una permutación exacta de los grupos "
+			+ "que existen",
+			content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+	public List<Grupo> reordenarGrupos(@Valid @RequestBody ReordenarGruposPeticion peticion) {
+		List<Grupo> resultado = this.servicio.reordenarGrupos(peticion.ids());
+		log.info("PUT /tarea/grupo/orden -> 200 con {} grupos", resultado.size());
+		return resultado;
+	}
+
+	@PutMapping("/{id}/grupo")
+	@Operation(summary = "Meter una tarea en un grupo",
+			description = "Se manda `null` para dejarla suelta. Devuelve el estado completo de los grupos "
+					+ "ya actualizado, para que el cliente no tenga que recomponerlo.")
+	@ApiResponse(responseCode = "200", description = "Asignada; se devuelven grupos y asignaciones")
+	@ApiResponse(responseCode = "404", description = "No existe la tarea, o no existe el grupo indicado",
+			content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+	public GruposConAsignaciones cambiarGrupo(@PathVariable int id, @RequestBody CambiarGrupoPeticion peticion) {
+		GruposConAsignaciones resultado = this.servicio.cambiarGrupo(id, peticion.grupo());
+		log.info("PUT /tarea/{}/grupo -> 200 ({})", id, peticion.grupo());
+		return resultado;
+	}
+
+	/* ------------------------------------------------------------------- Orden */
+
 	@PutMapping("/orden")
 	@Operation(summary = "Reordenar todas las tareas",
 			description = "Recibe todos los ids en el orden deseado. **Ningún id cambia**: lo que se mueve "

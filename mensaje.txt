@@ -1,0 +1,46 @@
+Grupos de tareas y rediseno de la interfaz
+
+Las tareas se agrupan en secciones con nombre y barra de progreso propia.
+El grupo NO es un campo de la tarea: una tarea sigue siendo exactamente
+id, texto y completada. Vive en datos/grupos.json junto con las
+asignaciones, siguiendo el patron de los fondos y reutilizando
+ArchivoJsonAtomico. Los dos van en el mismo archivo porque por separado no
+sirven de nada y dos escrituras podrian dejar asignaciones sin grupo.
+
+El orden tampoco se duplica: dentro de un grupo es el orden relativo que
+las tareas ya tienen en la lista global, asi que PUT /tarea/orden sigue
+valiendo sin cambios. Borrar un grupo no borra sus tareas: quedan sueltas.
+
+Interfaz:
+
+- De rejilla de 2 a 4 columnas a una sola columna con secciones. Agrupar y
+  encolumnar compiten: con pocas tareas por grupo la rejilla deja filas a
+  medias y la vista deja de leerse como una lista de secciones.
+- Barra de progreso por grupo; las tareas sueltas no llevan, porque no son
+  un conjunto que se pueda dar por terminado.
+- Las completadas ya no se tachan: se atenuan en su sitio. Tachar dificulta
+  releer lo hecho, que es justo lo que se quiere poder hacer al repasar.
+- Casilla circular que se rellena al marcarla y anticipa la marca al pasar
+  por encima. Su borde va con --color-texto-suave y no con --color-borde:
+  medido, ese daba 1,31:1 y la WCAG 1.4.11 pide 3:1 cuando el contorno es
+  lo unico que identifica el control.
+- El alta se pliega tras un boton «+» que la despliega en 200 ms, con el
+  foco dentro y aria-expanded.
+- Dos temas en vez de tres. Al arrancar se sigue al del sistema; al pulsar,
+  esa eleccion manda para siempre.
+- Arrastre entre grupos con listas conectadas, y Ctrl+flechas laterales
+  para cambiar de grupo sin raton.
+
+Correcciones de la revision:
+
+- repintar() se llamaba a si misma, asi que la aplicacion no pintaba nada.
+  Ninguna prueba lo vio porque app.js no tenia ninguna: ahora tiene 12, y
+  la primera comprueba que al arrancar se pinta.
+- Completar una tarea no movia la barra de progreso de su grupo: se
+  actualizaba la tarjeta pero no la cabecera de su seccion.
+- Cinco exportaciones sin consumidor, verificadas una a una. La suite
+  probaba una funcion muerta con 6 pruebas mientras moverTareaAGrupo, de
+  la que depende toda la reordenacion, no tenia ninguna; ahora tiene 8.
+- Cuatro afirmaciones de la documentacion que ya eran falsas.
+
+206 pruebas: 106 del servidor y 100 del navegador.

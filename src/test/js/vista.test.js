@@ -49,6 +49,7 @@ beforeEach(() => {
 	estado.reemplazarFondos({});
 	estado.terminarEdicion();
 	estado.reemplazarTareas(DOS_TAREAS);
+	estado.reemplazarGrupos({ grupos: [], asignaciones: {} });
 	estado.filtrarPorEstado('todas');
 	estado.buscar('');
 	vista.pintarLista();
@@ -56,7 +57,7 @@ beforeEach(() => {
 
 /** Los ids de las tarjetas, en el orden en que están pintadas. */
 function idsPintados() {
-	const tarjetas = /** @type {NodeListOf<HTMLElement>} */ (document.querySelectorAll('.tarea'));
+	const tarjetas = /** @type {NodeListOf<HTMLElement>} */ (document.querySelectorAll('.seccion .tarea'));
 	return [...tarjetas].map((t) => t.dataset.id);
 }
 
@@ -244,15 +245,134 @@ describe('fondos', () => {
 
 });
 
-describe('mover una tarjeta sin repintar', () => {
+describe('secciones y grupos', () => {
 
-	it('mueve el nodo, que es lo que deja sobrevivir un cuadro de edición abierto', () => {
-		const original = tarjeta(1);
+	/** @param {string} selector */
+	function texto(selector) {
+		return document.querySelector(selector)?.textContent;
+	}
 
-		vista.moverTarjeta(0, 1);
+	beforeEach(() => {
+		estado.reemplazarGrupos({ grupos: [{ id: 1, nombre: 'Mañana' }], asignaciones: { 1: 1 } });
+		vista.pintarLista();
+	});
 
-		expect(idsPintados()).toEqual(['2', '1']);
-		expect(vista.obtenerTarjetaDeTarea(1)).toBe(original);
+	it('pinta una sección por grupo, más la de las tareas sueltas', () => {
+		const nombres = [...document.querySelectorAll('.seccion__nombre')].map((n) => n.textContent);
+
+		expect(nombres).toEqual(['Mañana', 'Sin grupo']);
+	});
+
+	it('mete cada tarea en la sección de su grupo', () => {
+		const secciones = [...document.querySelectorAll('.seccion')];
+		const idsPorSeccion = secciones.map((seccion) => {
+			const tarjetas = /** @type {NodeListOf<HTMLElement>} */ (seccion.querySelectorAll('.tarea'));
+			return [...tarjetas].map((t) => t.dataset.id);
+		});
+
+		expect(idsPorSeccion).toEqual([['1'], ['2']]);
+	});
+
+	it('la cabecera del grupo lleva la cuenta de completadas', () => {
+		expect(texto('.seccion__cuenta')).toBe('0 / 1');
+	});
+
+	it('la barra de progreso del grupo avanza al completar', () => {
+		estado.reemplazarTareas([{ id: 1, texto: 'Comprar pan', completada: true }]);
+		vista.pintarLista();
+
+		const progreso = /** @type {HTMLProgressElement} */ (document.querySelector('.seccion__progreso'));
+		expect(progreso.max).toBe(1);
+		expect(progreso.value).toBe(1);
+		expect(texto('.seccion__cuenta')).toBe('1 / 1');
+	});
+
+	/**
+	 * Las sueltas no son un conjunto que se pueda dar por terminado, así que una barra ahí no
+	 * significaría nada.
+	 */
+	it('las tareas sueltas no llevan barra de progreso', () => {
+		const secciones = [...document.querySelectorAll('.seccion')];
+		const sueltas = secciones[secciones.length - 1];
+
+		const progreso = /** @type {HTMLProgressElement} */ (sueltas.querySelector('.seccion__progreso'));
+		expect(progreso.hidden).toBe(true);
+		const acciones = /** @type {HTMLElement} */ (sueltas.querySelector('.seccion__acciones'));
+		expect(acciones.hidden).toBe(true);
+	});
+
+	it('no pinta la sección de sueltas si no queda ninguna y hay grupos', () => {
+		estado.reemplazarGrupos({ grupos: [{ id: 1, nombre: 'Mañana' }], asignaciones: { 1: 1, 2: 1 } });
+		vista.pintarLista();
+
+		const nombres = [...document.querySelectorAll('.seccion__nombre')].map((n) => n.textContent);
+		expect(nombres).toEqual(['Mañana']);
+	});
+
+	it('cada sección se anuncia con su nombre para quien navega con lector de pantalla', () => {
+		const seccion = document.querySelector('.seccion');
+		const etiqueta = seccion?.getAttribute('aria-labelledby');
+
+		expect(document.getElementById(String(etiqueta))?.textContent).toBe('Mañana');
+	});
+
+	it('las acciones del grupo dicen de qué grupo son', () => {
+		expect(document.querySelector('[data-accion="borrar-grupo"]')?.getAttribute('aria-label'))
+			.toContain('Mañana');
+	});
+
+	/**
+	 * REGRESIÓN. Marcar una tarea no repinta la lista —sería rehacer todas las tarjetas para cambiar
+	 * una—, así que la cabecera se quedaba con la cuenta y la barra de antes. La barra de progreso
+	 * existe justo para esto: si no se mueve al completar, no sirve de nada.
+	 */
+	it('completar una tarea mueve la barra de progreso de su grupo sin repintar la lista', () => {
+		expect(texto('.seccion__cuenta')).toBe('0 / 1');
+
+		estado.reemplazarTarea({ id: 1, texto: 'Comprar pan', completada: true });
+		vista.actualizarTarjeta(1);
+
+		expect(texto('.seccion__cuenta')).toBe('1 / 1');
+		const progreso = /** @type {HTMLProgressElement} */ (document.querySelector('.seccion__progreso'));
+		expect(progreso.value).toBe(1);
+	});
+
+	it('un grupo vacío invita a arrastrar tareas hasta él', () => {
+		estado.reemplazarGrupos({ grupos: [{ id: 9, nombre: 'Casa' }], asignaciones: {} });
+		vista.pintarLista();
+
+		const casa = document.querySelector('[data-grupo="9"]');
+		expect(/** @type {HTMLElement} */ (casa?.querySelector('.seccion__vacia')).hidden).toBe(false);
+	});
+
+});
+
+describe('alta plegable', () => {
+
+	it('arranca plegada tras el botón «+»', () => {
+		const formulario = /** @type {HTMLElement} */ (document.getElementById('formulario-nueva'));
+		expect(formulario.hidden).toBe(true);
+		expect(vista.estaAbiertaElAlta()).toBe(false);
+	});
+
+	it('al abrirla enseña el formulario y esconde el botón', () => {
+		vista.mostrarAlta(true);
+
+		expect(vista.estaAbiertaElAlta()).toBe(true);
+		expect(vista.botonAbrirAlta.hidden).toBe(true);
+		expect(vista.botonAbrirAlta.getAttribute('aria-expanded')).toBe('true');
+	});
+
+	/** Si el foco se quedara en un elemento que se acaba de ocultar, se perdería en el body. */
+	it('al cerrarla vuelve el foco al botón y se limpia lo escrito', () => {
+		vista.mostrarAlta(true);
+		vista.campoTexto.value = 'a medio escribir';
+
+		vista.mostrarAlta(false);
+
+		expect(vista.campoTexto.value).toBe('');
+		expect(document.activeElement).toBe(vista.botonAbrirAlta);
+		expect(vista.botonAbrirAlta.getAttribute('aria-expanded')).toBe('false');
 	});
 
 });

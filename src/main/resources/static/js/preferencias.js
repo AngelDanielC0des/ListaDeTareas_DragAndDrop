@@ -19,13 +19,19 @@
  */
 const CLAVE_TEMA = 'tareas.tema';
 
-/** El valor por defecto: seguir lo que diga el sistema operativo. */
-const TEMA_SISTEMA = 'sistema';
+/**
+ * Que no haya nada guardado significa «sigue al sistema».
+ *
+ * No es un tema que se pueda elegir, es la ausencia de elección: por eso vale como valor por defecto
+ * pero no aparece en el interruptor, que solo tiene claro y oscuro. La consecuencia, asumida a
+ * propósito, es que una vez elegido uno ya no se vuelve al automático sin borrar los datos del sitio.
+ */
+const SIN_ELEGIR = null;
 
-/** @typedef {'claro' | 'oscuro' | 'sistema'} Tema */
+/** @typedef {'claro' | 'oscuro'} Tema */
 
 /** @type {Tema[]} */
-const TEMAS_VALIDOS = ['claro', 'oscuro', TEMA_SISTEMA];
+const TEMAS_VALIDOS = ['claro', 'oscuro'];
 
 /**
  * Si una cadena cualquiera es uno de los temas que entendemos.
@@ -42,10 +48,14 @@ function esTemaValido(valor) {
 	return resultado;
 }
 
-/** @returns {Tema} */
+/**
+ * El tema elegido, o `null` si nunca se ha elegido ninguno y toca seguir al del sistema.
+ *
+ * @returns {Tema | null}
+ */
 export function leerTema() {
-	/** @type {Tema} */
-	let resultado = TEMA_SISTEMA;
+	/** @type {Tema | null} */
+	let resultado = SIN_ELEGIR;
 	try {
 		const guardado = localStorage.getItem(CLAVE_TEMA);
 		if (esTemaValido(guardado)) {
@@ -64,14 +74,7 @@ export function guardarTema(tema) {
 		return;
 	}
 	try {
-		// «Sistema» se guarda como ausencia de preferencia: así, si el usuario vuelve al valor por
-		// defecto, no queda una clave marcando una elección que ya no existe.
-		if (tema === TEMA_SISTEMA) {
-			localStorage.removeItem(CLAVE_TEMA);
-		}
-		else {
-			localStorage.setItem(CLAVE_TEMA, tema);
-		}
+		localStorage.setItem(CLAVE_TEMA, tema);
 	}
 	catch {
 		// No poder guardar no es motivo para no aplicarlo: durará lo que dure la pestaña.

@@ -61,8 +61,9 @@ function exigirDentro(raiz, selector, tipo) {
 }
 
 const elementos = {
-	lista: exigirElemento('lista', HTMLUListElement),
+	secciones: exigirElemento('secciones', HTMLElement),
 	plantilla: exigirElemento('plantilla-tarea', HTMLTemplateElement),
+	plantillaSeccion: exigirElemento('plantilla-seccion', HTMLTemplateElement),
 	listaVacia: exigirElemento('lista-vacia', HTMLElement),
 	avisoError: exigirElemento('aviso-error', HTMLElement),
 	resumen: exigirElemento('resumen', HTMLElement),
@@ -70,7 +71,8 @@ const elementos = {
 	campoTexto: exigirElemento('campo-texto', HTMLInputElement),
 	botonAnadir: exigirElemento('boton-anadir', HTMLButtonElement),
 	progreso: exigirElemento('progreso', HTMLProgressElement),
-	radiosDeTema: document.querySelectorAll('.tema__radio'),
+	botonTema: exigirElemento('boton-tema', HTMLButtonElement),
+	temaTexto: exigirElemento('tema-texto', HTMLElement),
 	avisoDeshacer: exigirElemento('aviso-deshacer', HTMLElement),
 	textoDeshacer: exigirElemento('aviso-deshacer-texto', HTMLElement),
 	botonDeshacer: exigirElemento('boton-deshacer', HTMLButtonElement),
@@ -84,11 +86,19 @@ const elementos = {
 	sinResultados: exigirElemento('sin-resultados', HTMLElement),
 	avisoArrastre: exigirElemento('aviso-arrastre', HTMLElement),
 	atajos: exigirElemento('atajos', HTMLDialogElement),
-	botonAtajos: exigirElemento('boton-atajos', HTMLButtonElement)
+	botonAtajos: exigirElemento('boton-atajos', HTMLButtonElement),
+	formularioAlta: exigirElemento('formulario-nueva', HTMLFormElement),
+	botonAbrirAlta: exigirElemento('boton-abrir-alta', HTMLButtonElement),
+	botonCancelarAlta: exigirElemento('boton-cancelar-alta', HTMLButtonElement),
+	altaDeGrupo: exigirElemento('alta-grupo', HTMLElement),
+	formularioGrupo: exigirElemento('formulario-grupo', HTMLFormElement),
+	campoGrupo: exigirElemento('campo-grupo', HTMLInputElement),
+	botonAbrirGrupo: exigirElemento('boton-abrir-grupo', HTMLButtonElement),
+	botonCancelarGrupo: exigirElemento('boton-cancelar-grupo', HTMLButtonElement)
 };
 
 /** Se exponen para que `app.js` y `arrastre.js` cuelguen sus listeners sin volver a buscarlos. */
-export const lista = elementos.lista;
+export const secciones = elementos.secciones;
 
 export const campoTexto = elementos.campoTexto;
 
@@ -122,7 +132,7 @@ export function configurarLimiteDeTexto(maximo) {
 	maxCaracteresTexto = maximo;
 	elementos.campoTexto.maxLength = maximo;
 	const editores = /** @type {NodeListOf<HTMLTextAreaElement>} */
-		(elementos.lista.querySelectorAll('.tarea__editor'));
+		(elementos.secciones.querySelectorAll('.tarea__editor'));
 	for (const editor of editores) {
 		editor.maxLength = maximo;
 	}
@@ -166,25 +176,114 @@ function conTransicion(cambiarElDom) {
 function reconstruirLista() {
 	const todas = estado.obtenerTareas();
 	const visibles = estado.obtenerTareasVisibles();
-	const idEnEdicion = estado.obtenerIdEnEdicion();
 
 	const fragmento = document.createDocumentFragment();
-	for (const tarea of visibles) {
-		fragmento.appendChild(construirTarjeta(tarea, idEnEdicion === tarea.id));
+	for (const grupo of estado.obtenerGrupos()) {
+		fragmento.appendChild(construirSeccion(grupo));
 	}
+	fragmento.appendChild(construirSeccion(null));
 
-	elementos.lista.replaceChildren(fragmento);
+	elementos.secciones.replaceChildren(fragmento);
 
 	// Tres estados distintos que es importante no confundir: no hay ninguna tarea, hay tareas pero
 	// el filtro no encuentra ninguna, o hay resultados.
 	elementos.listaVacia.hidden = todas.length > 0;
 	elementos.filtros.hidden = todas.length === 0;
+	elementos.altaDeGrupo.hidden = todas.length === 0;
 	actualizarSinResultados(todas.length, visibles.length);
 	actualizarAvisoDeArrastre();
 
 	actualizarBotonesVerMas();
 	actualizarResumen();
 	enfocarEditorEnEdicion();
+}
+
+/**
+ * Construye una sección entera: la de un grupo, o la de las tareas sueltas si `grupo` es `null`.
+ *
+ * La sección de sueltas no se pinta si no hay ninguna y además hay grupos: enseñar una cabecera
+ * «Sin grupo» vacía cuando todo está clasificado es ruido. Sí se pinta cuando no hay ningún grupo,
+ * porque entonces es la única lista que hay.
+ *
+ * @param {import('./tipos.js').Grupo | null} grupo
+ * @returns {DocumentFragment | HTMLElement}
+ */
+function construirSeccion(grupo) {
+	const idDeGrupo = (grupo === null) ? null : grupo.id;
+	const tareas = estado.obtenerTareasDeGrupo(idDeGrupo);
+	const esSueltas = grupo === null;
+
+	if (esSueltas && tareas.length === 0 && estado.obtenerGrupos().length > 0) {
+		return document.createDocumentFragment();
+	}
+
+	const modelo = exigirDentro(elementos.plantillaSeccion.content, '.seccion', HTMLElement);
+	const seccion = /** @type {HTMLElement} */ (modelo.cloneNode(true));
+	const lista = exigirDentro(seccion, '.lista', HTMLUListElement);
+
+	if (esSueltas) {
+		seccion.dataset.grupo = '';
+	}
+	else {
+		seccion.dataset.grupo = String(grupo.id);
+	}
+
+	rellenarCabeceraDeSeccion(seccion, grupo);
+
+	const idEnEdicion = estado.obtenerIdEnEdicion();
+	for (const tarea of tareas) {
+		lista.appendChild(construirTarjeta(tarea, idEnEdicion === tarea.id));
+	}
+
+	// El hueco vacío solo tiene sentido en un grupo: es donde se sueltan las tareas al arrastrarlas.
+	exigirDentro(seccion, '.seccion__vacia', HTMLElement).hidden = esSueltas || tareas.length > 0;
+
+	return seccion;
+}
+
+/**
+ * Nombre, cuenta, progreso y acciones de la cabecera.
+ *
+ * La barra de progreso solo aparece en los grupos. En las tareas sueltas no significa nada: no son
+ * un conjunto que se pueda dar por terminado, son simplemente las que no están clasificadas.
+ *
+ * @param {HTMLElement} seccion
+ * @param {import('./tipos.js').Grupo | null} grupo
+ */
+function rellenarCabeceraDeSeccion(seccion, grupo) {
+	const nombre = exigirDentro(seccion, '.seccion__nombre', HTMLElement);
+	const cuenta = exigirDentro(seccion, '.seccion__cuenta', HTMLElement);
+	const progreso = exigirDentro(seccion, '.seccion__progreso', HTMLProgressElement);
+	const acciones = exigirDentro(seccion, '.seccion__acciones', HTMLElement);
+
+	if (grupo === null) {
+		nombre.textContent = 'Sin grupo';
+		nombre.id = 'seccion-sueltas';
+		seccion.setAttribute('aria-labelledby', 'seccion-sueltas');
+		cuenta.textContent = '';
+		progreso.hidden = true;
+		acciones.hidden = true;
+	}
+	else {
+		nombre.textContent = grupo.nombre;
+		nombre.id = `seccion-grupo-${grupo.id}`;
+		seccion.setAttribute('aria-labelledby', nombre.id);
+
+		const { total, completadas } = estado.contarProgresoDeGrupo(grupo.id);
+		cuenta.textContent = `${completadas} / ${total}`;
+
+		// max=1 con value=0 cuando el grupo está vacío: evita una división por cero y deja la barra
+		// a cero en vez de llena, que es lo que haría max=0.
+		progreso.hidden = false;
+		progreso.max = Math.max(total, 1);
+		progreso.value = completadas;
+
+		acciones.hidden = false;
+		exigirDentro(seccion, '[data-accion="renombrar-grupo"]', HTMLElement)
+			.setAttribute('aria-label', `Renombrar el grupo «${grupo.nombre}»`);
+		exigirDentro(seccion, '[data-accion="borrar-grupo"]', HTMLElement)
+			.setAttribute('aria-label', `Borrar el grupo «${grupo.nombre}». Sus tareas no se borran.`);
+	}
 }
 
 /**
@@ -277,32 +376,32 @@ export function actualizarTarjeta(id) {
 
 	rellenarTarjeta(tarjeta, tarea, estado.obtenerIdEnEdicion() === id);
 	actualizarBotonVerMasDe(tarjeta, medirDesbordamiento(tarjeta));
+	actualizarCabeceraDeSuSeccion(tarjeta);
 	actualizarResumen();
 	enfocarEditorEnEdicion();
 }
 
 /**
- * Mueve una tarjeta de posición sin reconstruir la lista.
+ * Refresca la cabecera de la sección a la que pertenece una tarjeta.
  *
- * Reordenar solo cambia el sitio de un nodo, así que rehacer las N tarjetas sería tirar y volver a
- * crear todo lo que ya estaba bien. Además, moviendo el nodo sobrevive un <textarea> abierto.
+ * Hace falta porque marcar una tarea como completada no repinta la lista —sería tirar y rehacer
+ * todas las tarjetas para cambiar una— pero sí cambia la cuenta y la barra de progreso de su grupo,
+ * que es justamente lo que esa barra existe para enseñar. Sin esto, se completaba una tarea y el
+ * progreso se quedaba clavado hasta el siguiente repintado.
  *
- * @param {number} desde
- * @param {number} hasta
+ * @param {HTMLElement} tarjeta
  */
-export function moverTarjeta(desde, hasta) {
-	const tarjeta = elementos.lista.children[desde];
-	if (!tarjeta) {
+function actualizarCabeceraDeSuSeccion(tarjeta) {
+	const seccion = tarjeta.closest('.seccion');
+	if (!(seccion instanceof HTMLElement)) {
 		return;
 	}
-	// Al mover hacia abajo, el nodo de destino se «corre» una posición en cuanto se saca el actual,
-	// así que la referencia es el siguiente.
-	let posicionDeReferencia = hasta;
-	if (hasta > desde) {
-		posicionDeReferencia = hasta + 1;
-	}
-	const referencia = elementos.lista.children[posicionDeReferencia] ?? null;
-	elementos.lista.insertBefore(tarjeta, referencia);
+
+	const idBruto = seccion.dataset.grupo ?? '';
+	const grupo = (idBruto === '') ? null
+		: estado.obtenerGrupos().find((cual) => cual.id === Number(idBruto)) ?? null;
+
+	rellenarCabeceraDeSeccion(seccion, grupo);
 }
 
 /**
@@ -433,7 +532,7 @@ function aplicarModoEdicion(tarjeta, enEdicion) {
  * scrollHeight obligaba al navegador a recalcularlo. Eran O(n) reflujos forzados donde basta con uno.
  */
 function actualizarBotonesVerMas() {
-	const tarjetas = [...elementos.lista.children];
+	const tarjetas = [...elementos.secciones.querySelectorAll('.tarea')];
 
 	const desbordamientos = tarjetas.map((tarjeta) => medirDesbordamiento(tarjeta));
 
@@ -512,7 +611,7 @@ export function vigilarCambiosDeAncho() {
 			actualizarBotonesVerMas();
 		});
 	});
-	observador.observe(elementos.lista);
+	observador.observe(elementos.secciones);
 }
 
 /* ------------------------------------------------------------------ Auxiliares */
@@ -534,7 +633,7 @@ function enfocarEditorEnEdicion() {
  * @returns {HTMLTextAreaElement | null}
  */
 function obtenerEditorDeTarea(id) {
-	const editor = elementos.lista.querySelector(`[data-id="${id}"] .tarea__editor`);
+	const editor = elementos.secciones.querySelector(`[data-id="${id}"] .tarea__editor`);
 	const resultado = (editor instanceof HTMLTextAreaElement) ? editor : null;
 	return resultado;
 }
@@ -544,7 +643,7 @@ function obtenerEditorDeTarea(id) {
  * @returns {HTMLLIElement | null}
  */
 export function obtenerTarjetaDeTarea(id) {
-	const tarjeta = elementos.lista.querySelector(`[data-id="${id}"]`);
+	const tarjeta = elementos.secciones.querySelector(`[data-id="${id}"]`);
 	const resultado = (tarjeta instanceof HTMLLIElement) ? tarjeta : null;
 	return resultado;
 }
@@ -681,38 +780,110 @@ export function cerrarSelectorDeFondo() {
 	}
 }
 
-/* ----------------------------------------------------------------------- Tema */
+/* ------------------------------------------------------------ Alta plegable */
 
 /**
- * Aplica el tema elegido.
+ * Abre o cierra el formulario de alta.
  *
- * «Sistema» se traduce en quitar el atributo, no en poner un valor: sin él manda el
- * `prefers-color-scheme` de la hoja de estilos, que es exactamente lo que significa esa opción.
+ * Al abrirlo el foco va al campo, para poder escribir sin tener que pulsar otra vez. Al cerrarlo
+ * vuelve al botón: si se quedara donde estaba, el foco caería a un elemento que ya no se ve.
  *
- * @param {string} tema
+ * @param {boolean} abierta
  */
-export function aplicarTema(tema) {
-	if (tema === 'claro' || tema === 'oscuro') {
-		document.documentElement.dataset.tema = tema;
+export function mostrarAlta(abierta) {
+	elementos.botonAbrirAlta.setAttribute('aria-expanded', String(abierta));
+	elementos.botonAbrirAlta.hidden = abierta;
+	elementos.formularioAlta.hidden = !abierta;
+
+	if (abierta) {
+		elementos.campoTexto.focus();
 	}
 	else {
-		delete document.documentElement.dataset.tema;
-	}
-
-	for (const radio of elementos.radiosDeTema) {
-		if (radio instanceof HTMLInputElement) {
-			radio.checked = (radio.value === tema);
-		}
+		elementos.campoTexto.value = '';
+		actualizarContador();
+		elementos.botonAbrirAlta.focus();
 	}
 }
 
-/** @param {(tema: string) => void} manejador */
-export function alCambiarElTema(manejador) {
-	for (const radio of elementos.radiosDeTema) {
-		if (radio instanceof HTMLInputElement) {
-			radio.addEventListener('change', () => manejador(radio.value));
-		}
+export function estaAbiertaElAlta() {
+	const resultado = !elementos.formularioAlta.hidden;
+	return resultado;
+}
+
+/** @param {boolean} abierta */
+export function mostrarAltaDeGrupo(abierta) {
+	elementos.botonAbrirGrupo.setAttribute('aria-expanded', String(abierta));
+	elementos.botonAbrirGrupo.hidden = abierta;
+	elementos.formularioGrupo.hidden = !abierta;
+
+	if (abierta) {
+		elementos.campoGrupo.focus();
 	}
+	else {
+		elementos.campoGrupo.value = '';
+		elementos.botonAbrirGrupo.focus();
+	}
+}
+
+export function estaAbiertaElAltaDeGrupo() {
+	const resultado = !elementos.formularioGrupo.hidden;
+	return resultado;
+}
+
+export const campoGrupo = elementos.campoGrupo;
+
+export const formularioGrupo = elementos.formularioGrupo;
+
+export const botonAbrirAlta = elementos.botonAbrirAlta;
+
+export const botonCancelarAlta = elementos.botonCancelarAlta;
+
+export const botonAbrirGrupo = elementos.botonAbrirGrupo;
+
+export const botonCancelarGrupo = elementos.botonCancelarGrupo;
+
+/* ----------------------------------------------------------------------- Tema */
+
+/**
+ * Aplica el tema.
+ *
+ * `null` significa «sigue al sistema» y se traduce en quitar el atributo, no en poner un valor: sin
+ * él manda el `prefers-color-scheme` de la hoja de estilos, que es exactamente lo que significa.
+ *
+ * @param {'claro' | 'oscuro' | null} tema
+ */
+export function aplicarTema(tema) {
+	if (tema === null) {
+		delete document.documentElement.dataset.tema;
+	}
+	else {
+		document.documentElement.dataset.tema = tema;
+	}
+
+	// El interruptor refleja lo que se ve ahora, que sin elección es lo que diga el sistema.
+	const oscuroAhora = (tema === null) ? prefiereOscuroElSistema() : tema === 'oscuro';
+	elementos.botonTema.setAttribute('aria-pressed', String(oscuroAhora));
+	elementos.temaTexto.textContent = oscuroAhora ? 'Cambiar a tema claro' : 'Cambiar a tema oscuro';
+}
+
+function prefiereOscuroElSistema() {
+	const resultado = globalThis.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false;
+	return resultado;
+}
+
+/**
+ * El tema contrario al que se está viendo, que es lo que hará el interruptor al pulsarlo.
+ *
+ * @returns {'claro' | 'oscuro'}
+ */
+export function temaContrarioAlActual() {
+	const resultado = (elementos.botonTema.getAttribute('aria-pressed') === 'true') ? 'claro' : 'oscuro';
+	return resultado;
+}
+
+/** @param {() => void} manejador */
+export function alPulsarElTema(manejador) {
+	elementos.botonTema.addEventListener('click', manejador);
 }
 
 /* ------------------------------------------------------- Aviso de deshacer */

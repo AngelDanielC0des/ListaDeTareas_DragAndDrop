@@ -28,32 +28,34 @@
 
 <body>
 	<!-- Primer elemento enfocable: deja saltarse la cabecera y el selector de tema con el tabulador. -->
-	<a class="salto-al-contenido" href="#lista">Saltar al listado de tareas</a>
+	<a class="salto-al-contenido" href="#secciones">Saltar al listado de tareas</a>
 
 	<header class="cabecera">
 		<div class="cabecera__contenido">
 			<div class="cabecera__fila">
 				<h1 class="cabecera__titulo">Mis tareas</h1>
 
-				<!--
-					Radios y no botones: traen puesta la navegación con flechas y el agrupado
-					semántico, sin tener que añadir ARIA a mano.
-				-->
-				<fieldset class="tema">
-					<legend class="visualmente-oculto">Tema de la interfaz</legend>
-					<label class="tema__opcion">
-						<input class="tema__radio" type="radio" name="tema" value="claro">
-						<span class="tema__texto">Claro</span>
-					</label>
-					<label class="tema__opcion">
-						<input class="tema__radio" type="radio" name="tema" value="oscuro">
-						<span class="tema__texto">Oscuro</span>
-					</label>
-					<label class="tema__opcion">
-						<input class="tema__radio" type="radio" name="tema" value="sistema" checked>
-						<span class="tema__texto">Sistema</span>
-					</label>
-				</fieldset>
+					<!--
+						Dos temas y no tres. Al arrancar se sigue al del sistema; en cuanto se pulsa,
+						esa elección manda para siempre. Es lo que hace GitHub, y es una decisión
+						consciente: el precio es que ya no se puede volver al automático sin borrar
+						los datos del sitio.
+
+						aria-pressed y no aria-checked porque es un botón que alterna un estado, no
+						una opción dentro de un grupo de opciones.
+					-->
+					<button class="tema" id="boton-tema" type="button" aria-pressed="false">
+						<svg class="tema__icono tema__icono--sol icono" viewBox="0 0 24 24" aria-hidden="true"
+							focusable="false">
+							<circle cx="12" cy="12" r="4" />
+							<path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+						</svg>
+						<svg class="tema__icono tema__icono--luna icono" viewBox="0 0 24 24" aria-hidden="true"
+							focusable="false">
+							<path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z" />
+						</svg>
+						<span class="visualmente-oculto" id="tema-texto">Cambiar a tema oscuro</span>
+					</button>
 			</div>
 
 			<p class="cabecera__resumen" id="resumen">Cargando…</p>
@@ -65,29 +67,35 @@
 
 	<main class="contenido-principal">
 		<!--
-			Ni este formulario ni la plantilla de abajo llevan un maxlength escrito a mano: el límite
-			lo dicta el servidor y lo aplica vista.js con lo que devuelve /tarea/configuracion.
-		-->
-		<form class="formulario" id="formulario-nueva" novalidate>
-			<label class="formulario__etiqueta" for="campo-texto">Nueva tarea</label>
-			<div class="formulario__fila">
-				<input class="formulario__campo" id="campo-texto" name="texto" type="text" autocomplete="off"
-					placeholder="¿Qué hay que hacer?" aria-describedby="contador">
+			El alta arranca plegada en un botón «+» y se despliega al pulsarlo. Deja la pantalla más
+			limpia y hace que lo primero que se vea sean las tareas y no un campo vacío.
 
-				<!--
-					El signo va en un <svg aria-hidden>, así que el nombre accesible del botón sale
-					del texto de al lado, que en pantallas estrechas se oculta solo visualmente. Un
-					botón con únicamente un icono y sin nombre sería mudo para un lector de pantalla.
-				-->
-				<button class="boton boton--principal boton--icono" id="boton-anadir" type="submit">
-					<svg class="icono" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-						<path d="M12 5v14M5 12h14" />
-					</svg>
-					<span class="boton__texto">Añadir tarea</span>
-				</button>
-			</div>
-			<p class="formulario__contador" id="contador"></p>
-		</form>
+			El botón lleva aria-expanded porque gobierna la visibilidad del formulario: sin él, quien
+			usa un lector de pantalla no sabría que hay algo que se abre ni si está abierto.
+
+			Ni el campo ni la plantilla de abajo llevan un maxlength escrito a mano: el límite lo
+			dicta el servidor y lo aplica vista.js con lo que devuelve /tarea/configuracion.
+		-->
+		<div class="alta">
+			<button class="alta__abrir" id="boton-abrir-alta" type="button" aria-expanded="false"
+				aria-controls="formulario-nueva">
+				<svg class="icono" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+					<path d="M12 5v14M5 12h14" />
+				</svg>
+				<span>Nueva tarea</span>
+			</button>
+
+			<form class="formulario" id="formulario-nueva" novalidate hidden>
+				<label class="visualmente-oculto" for="campo-texto">Texto de la tarea nueva</label>
+				<div class="formulario__fila">
+					<input class="formulario__campo" id="campo-texto" name="texto" type="text"
+						autocomplete="off" placeholder="¿Qué hay que hacer?" aria-describedby="contador">
+					<button class="boton boton--principal" id="boton-anadir" type="submit">Añadir</button>
+					<button class="boton" id="boton-cancelar-alta" type="button">Cancelar</button>
+				</div>
+				<p class="formulario__contador" id="contador"></p>
+			</form>
+		</div>
 
 		<!-- Único punto donde se muestran los errores de toda la aplicación. -->
 		<p class="aviso-error" id="aviso-error" role="alert" hidden></p>
@@ -104,8 +112,9 @@
 			Filtro y búsqueda. Va oculto mientras no haya tareas: unos controles para filtrar una lista
 			vacía solo estorban.
 
-			Los tres estados son <input type="radio"> dentro de un <fieldset>, igual que el selector de
-			tema: traen puestos el agrupado semántico y la navegación con flechas, sin ARIA a mano.
+			Los tres estados son <input type="radio"> dentro de un <fieldset>: traen puestos el
+			agrupado semántico y la navegación con flechas, sin tener que añadir ARIA a mano. Aquí sí
+			son radios, al revés que el tema, porque son tres opciones excluyentes y no un interruptor.
 		-->
 		<div class="filtros" id="filtros" hidden>
 			<div class="filtros__busqueda">
@@ -145,7 +154,33 @@
 			tareas.
 		</p>
 
-		<ul class="lista" id="lista" role="list" tabindex="-1"></ul>
+		<!--
+			Aquí van las secciones: una por grupo, más la de las tareas sueltas. Las pinta vista.js
+			clonando la plantilla de abajo; este contenedor solo existe para que haya un sitio fijo
+			donde meterlas y al que pueda saltar el enlace del principio.
+		-->
+		<div class="secciones" id="secciones" tabindex="-1"></div>
+
+		<!-- Alta de grupos. Se esconde igual que los filtros mientras no haya ninguna tarea. -->
+		<div class="alta-grupo" id="alta-grupo" hidden>
+			<button class="alta-grupo__abrir" id="boton-abrir-grupo" type="button" aria-expanded="false"
+				aria-controls="formulario-grupo">
+				<svg class="icono" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+					<path d="M12 5v14M5 12h14" />
+				</svg>
+				<span>Nuevo grupo</span>
+			</button>
+
+			<form class="formulario" id="formulario-grupo" novalidate hidden>
+				<label class="visualmente-oculto" for="campo-grupo">Nombre del grupo nuevo</label>
+				<div class="formulario__fila">
+					<input class="formulario__campo" id="campo-grupo" type="text" autocomplete="off"
+						placeholder="Por ejemplo: Mañana" maxlength="60">
+					<button class="boton boton--principal" id="boton-crear-grupo" type="submit">Crear</button>
+					<button class="boton" id="boton-cancelar-grupo" type="button">Cancelar</button>
+				</div>
+			</form>
+		</div>
 
 		<!-- Cuando el filtro no encuentra nada. Es distinto de no tener ninguna tarea. -->
 		<p class="sin-resultados" id="sin-resultados" hidden></p>
@@ -231,6 +266,50 @@
 			<button class="boton" type="submit">Cerrar</button>
 		</form>
 	</dialog>
+
+	<!--
+		Plantilla de una sección: un grupo, o el bloque de las tareas sueltas.
+
+		La cabecera es un <header> dentro de una <section> con aria-labelledby, así que un lector de
+		pantalla puede saltar de sección en sección y siempre sabe en cuál está.
+
+		La barra de progreso solo se enseña en los grupos: en las tareas sueltas no significa nada,
+		porque no son un conjunto que se pueda terminar. Va con aria-hidden porque el texto de al
+		lado ya dice lo mismo, y anunciarlo dos veces molesta.
+	-->
+	<template id="plantilla-seccion">
+		<section class="seccion">
+			<header class="seccion__cabecera">
+				<h3 class="seccion__nombre"></h3>
+				<span class="seccion__cuenta"></span>
+				<progress class="seccion__progreso" max="1" value="0" aria-hidden="true"></progress>
+
+				<div class="seccion__acciones">
+					<button class="seccion__accion" type="button" data-accion="renombrar-grupo">
+						<svg class="icono" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+							<path d="M4 20h4L18 10l-4-4L4 16v4z" />
+							<path d="M14 6l4 4" />
+						</svg>
+					</button>
+					<button class="seccion__accion seccion__accion--peligro" type="button"
+						data-accion="borrar-grupo">
+						<svg class="icono" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+							<path d="M5 7h14M10 7V5h4v2M7 7l1 13h8l1-13" />
+						</svg>
+					</button>
+				</div>
+			</header>
+
+			<ul class="lista" role="list"></ul>
+
+			<!--
+				Solo se puede llenar un grupo arrastrando o con Ctrl+←/→: crear una tarea la deja
+				suelta, nunca dentro de un grupo. El texto lo dice para no prometer lo que no pasa.
+			-->
+			<p class="seccion__vacia" hidden>Arrastra tareas hasta aquí, o muévelas con
+				<kbd>Ctrl</kbd> + <kbd>←</kbd> / <kbd>→</kbd>.</p>
+		</section>
+	</template>
 
 	<!--
 		Plantilla de una tarjeta. Se clona por cada tarea en lugar de construir HTML con cadenas:

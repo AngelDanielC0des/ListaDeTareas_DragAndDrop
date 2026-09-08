@@ -73,6 +73,15 @@ public class ManejadorErroresGlobal extends ResponseEntityExceptionHandler {
 		return resultado;
 	}
 
+	@ExceptionHandler(GrupoNoEncontradoException.class)
+	public ProblemDetail manejarGrupoNoEncontrado(GrupoNoEncontradoException excepcion) {
+		ProblemDetail resultado = construirProblema(HttpStatus.NOT_FOUND, "Grupo no encontrado",
+				excepcion.getMessage(), "grupo-no-encontrado");
+		resultado.setProperty("id", excepcion.getId());
+		log.warn("404 Grupo no encontrado: {}", excepcion.getMessage());
+		return resultado;
+	}
+
 	@ExceptionHandler(OrdenInvalidoException.class)
 	public ProblemDetail manejarOrdenInvalido(OrdenInvalidoException excepcion) {
 		ProblemDetail resultado = construirProblema(HttpStatus.CONFLICT, "Orden inválido",

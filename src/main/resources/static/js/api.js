@@ -240,6 +240,54 @@ export function cambiarFondo(id, fondo) {
 	return resultado;
 }
 
+/* ------------------------------------------------------------------- Grupos */
+
+/**
+ * Los grupos y sus asignaciones, en una sola petición.
+ *
+ * Van juntos porque por separado no sirven de nada, y pedirlos en dos abriría una ventana en la que
+ * el navegador tendría una mitad nueva y la otra vieja.
+ *
+ * @returns {Promise<import('./tipos.js').GruposConAsignaciones>}
+ */
+export function consultarGrupos() {
+	const resultado = realizarPeticion(`${RUTA_BASE}/grupo`);
+	return resultado;
+}
+
+/** @param {string} nombre */
+export function crearGrupo(nombre) {
+	const resultado = realizarPeticion(`${RUTA_BASE}/grupo`, { method: 'POST', cuerpo: { nombre } });
+	return resultado;
+}
+
+/**
+ * @param {number} idGrupo
+ * @param {string} nombre
+ */
+export function renombrarGrupo(idGrupo, nombre) {
+	const resultado = realizarPeticion(`${RUTA_BASE}/grupo/${idGrupo}`, { method: 'PUT', cuerpo: { nombre } });
+	return resultado;
+}
+
+/** Borra el grupo. Sus tareas no se borran: se quedan sueltas. @param {number} idGrupo */
+export function eliminarGrupo(idGrupo) {
+	const resultado = realizarPeticion(`${RUTA_BASE}/grupo/${idGrupo}`, { method: 'DELETE' });
+	return resultado;
+}
+
+/**
+ * Mete una tarea en un grupo, o la deja suelta con `null`.
+ *
+ * @param {number} id
+ * @param {number | null} grupo
+ * @returns {Promise<import('./tipos.js').GruposConAsignaciones>}
+ */
+export function cambiarGrupo(id, grupo) {
+	const resultado = realizarPeticion(`${RUTA_BASE}/${id}/grupo`, { method: 'PUT', cuerpo: { grupo } });
+	return resultado;
+}
+
 /** Límites que dicta el servidor, para no repetir el número máximo de caracteres en el navegador. */
 export function consultarConfiguracion() {
 	const resultado = realizarPeticion(`${RUTA_BASE}/configuracion`);
