@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Lista de tareas</title>
+	<link rel="stylesheet" href="css/estilos.css">
+</head>
+
+<body>
+	<header class="cabecera">
+		<div class="cabecera__contenido">
+			<h1 class="cabecera__titulo">Mis tareas</h1>
+			<p class="cabecera__resumen" id="resumen">Cargando…</p>
+		</div>
+	</header>
+
+	<main class="contenido-principal">
+		<!-- El maxlength debe coincidir con Tarea.MAX_CARACTERES_TEXTO en el servidor. Hay un test
+		     que compara los dos numeros y falla si alguien cambia uno y se olvida del otro. -->
+		<form class="formulario" id="formulario-nueva" novalidate>
+			<label class="formulario__etiqueta" for="campo-texto">Nueva tarea</label>
+			<div class="formulario__fila">
+				<input class="formulario__campo" id="campo-texto" name="texto" type="text" maxlength="280"
+					autocomplete="off" placeholder="¿Qué hay que hacer?">
+				<button class="boton boton--principal" id="boton-anadir" type="submit">Añadir</button>
+			</div>
+		</form>
+
+		<!-- Único punto donde se muestran los errores de toda la aplicación. -->
+		<p class="aviso-error" id="aviso-error" role="alert" hidden></p>
+
+		<h2 class="visualmente-oculto">Listado de tareas</h2>
+		<ul class="lista" id="lista" role="list"></ul>
+
+		<p class="lista-vacia" id="lista-vacia" hidden>Todavía no hay tareas. Añade la primera ahí arriba.</p>
+	</main>
+
+	<!-- Región para lectores de pantalla: anuncia los cambios que se ven pero no se «oyen». -->
+	<div class="visualmente-oculto" id="anuncios" role="status" aria-live="polite"></div>
+
+	<!--
+		Plantilla de una tarjeta. Se clona por cada tarea en lugar de construir HTML con cadenas:
+		así el texto del usuario entra siempre por textContent y nunca puede inyectar marcado.
+	-->
+	<template id="plantilla-tarea">
+		<li class="tarea">
+			<div class="tarea__cabecera">
+				<input class="tarea__casilla" type="checkbox">
+				<label class="visualmente-oculto">Completada</label>
+			</div>
+
+			<p class="tarea__texto"></p>
+			<textarea class="tarea__editor" rows="3" maxlength="280" hidden></textarea>
+
+			<div class="tarea__acciones">
+				<button class="tarea__accion" type="button" data-accion="editar">Editar</button>
+				<button class="tarea__accion tarea__accion--peligro" type="button" data-accion="eliminar">Borrar</button>
+			</div>
+
+			<div class="tarea__acciones" data-modo="edicion" hidden>
+				<button class="tarea__accion" type="button" data-accion="guardar">Guardar</button>
+				<button class="tarea__accion" type="button" data-accion="cancelar">Cancelar</button>
+			</div>
+		</li>
+	</template>
+
+	<script type="module" src="js/app.js"></script>
+</body>
+
+</html>

@@ -1,0 +1,12 @@
+# Normaliza los finales de linea al guardar en git, para que el arbol no dependa de la
+# configuracion local de cada maquina y los commits dejen de escupir avisos de CRLF.
+* text=auto
+
+# Los scripts de Windows necesitan CRLF; mvnw es un script de shell y necesita LF aunque se
+# haya escrito desde Windows, o no arranca en Linux ni en macOS.
+*.cmd text eol=crlf
+*.bat text eol=crlf
+mvnw text eol=lf
+
+*.jar binary
+*.png binary

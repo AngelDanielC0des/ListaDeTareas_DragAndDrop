@@ -1,0 +1,310 @@
+/*
+ * Hoja de estilos de la lista de tareas.
+ *
+ * Reglas que se siguen en todo el archivo:
+ *   - Especificidad plana: una sola clase por selector. Sin selectores de id, sin anidamiento,
+ *     sin !important. Así cualquier regla posterior puede sobrescribir a otra sin pelearse.
+ *   - Nomenclatura BEM: .bloque, .bloque__elemento, .bloque--modificador.
+ *   - Rejilla responsiva con auto-fill: sin breakpoints que mantener.
+ *   - Todo color, espacio y radio sale de una variable de :root.
+ */
+
+/* ------------------------------------------------------------------ Tokens */
+
+:root {
+	--color-fondo: #f5f6f8;
+	--color-superficie: #ffffff;
+	--color-superficie-suave: #eef0f4;
+	--color-texto: #1b1f24;
+	--color-texto-suave: #5f6b7a;
+	--color-borde: #dde1e7;
+	--color-acento: #2563eb;
+	--color-acento-texto: #ffffff;
+	--color-peligro: #d92d20;
+	--color-exito: #067647;
+
+	--espacio-1: 0.25rem;
+	--espacio-2: 0.5rem;
+	--espacio-3: 0.75rem;
+	--espacio-4: 1rem;
+	--espacio-5: 1.5rem;
+	--espacio-6: 2rem;
+
+	--radio: 0.625rem;
+	--radio-pequeno: 0.375rem;
+	--sombra: 0 1px 2px rgba(16, 24, 40, 0.06), 0 1px 3px rgba(16, 24, 40, 0.1);
+	--sombra-elevada: 0 8px 24px rgba(16, 24, 40, 0.16);
+
+	--ancho-maximo: 76rem;
+	--altura-toque: 2.5rem;
+
+	--tipografia: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root {
+		--color-fondo: #14171c;
+		--color-superficie: #1d2127;
+		--color-superficie-suave: #262b33;
+		--color-texto: #e8eaed;
+		--color-texto-suave: #9aa4b2;
+		--color-borde: #333942;
+		--color-acento: #4d84ff;
+		--color-acento-texto: #0b1020;
+		--color-peligro: #ff6b5e;
+		--color-exito: #4ade80;
+		--sombra: 0 1px 2px rgba(0, 0, 0, 0.4);
+		--sombra-elevada: 0 8px 24px rgba(0, 0, 0, 0.55);
+	}
+}
+
+/* ------------------------------------------------------------------- Base */
+
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+}
+
+body {
+	margin: 0;
+	background-color: var(--color-fondo);
+	color: var(--color-texto);
+	font-family: var(--tipografia);
+	font-size: 1rem;
+	line-height: 1.5;
+	-webkit-text-size-adjust: 100%;
+}
+
+:focus-visible {
+	outline: 2px solid var(--color-acento);
+	outline-offset: 2px;
+}
+
+.visualmente-oculto {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	margin: -1px;
+	padding: 0;
+	border: 0;
+	overflow: hidden;
+	white-space: nowrap;
+	clip-path: inset(50%);
+}
+
+/* -------------------------------------------------------------- Cabecera */
+
+.cabecera {
+	border-bottom: 1px solid var(--color-borde);
+	background-color: var(--color-superficie);
+}
+
+.cabecera__contenido {
+	max-width: var(--ancho-maximo);
+	margin: 0 auto;
+	padding: var(--espacio-4) var(--espacio-3);
+}
+
+.cabecera__titulo {
+	margin: 0;
+	font-size: 1.375rem;
+	letter-spacing: -0.01em;
+}
+
+.cabecera__resumen {
+	margin: var(--espacio-1) 0 0;
+	color: var(--color-texto-suave);
+	font-size: 0.875rem;
+}
+
+/* -------------------------------------------------------------- Contenido */
+
+.contenido-principal {
+	max-width: var(--ancho-maximo);
+	margin: 0 auto;
+	padding: var(--espacio-4) var(--espacio-3) var(--espacio-6);
+}
+
+/* ------------------------------------------------------------- Formulario */
+
+.formulario {
+	margin-bottom: var(--espacio-5);
+}
+
+.formulario__etiqueta {
+	display: block;
+	margin-bottom: var(--espacio-2);
+	font-size: 0.875rem;
+	font-weight: 600;
+}
+
+.formulario__fila {
+	display: flex;
+	gap: var(--espacio-2);
+}
+
+.formulario__campo {
+	flex: 1 1 auto;
+	min-width: 0;
+	min-height: var(--altura-toque);
+	padding: var(--espacio-2) var(--espacio-3);
+	border: 1px solid var(--color-borde);
+	border-radius: var(--radio-pequeno);
+	background-color: var(--color-superficie);
+	color: inherit;
+	font: inherit;
+	font-size: 1rem;
+}
+
+/* ----------------------------------------------------------------- Botones */
+
+.boton {
+	min-height: var(--altura-toque);
+	padding: var(--espacio-2) var(--espacio-4);
+	border: 1px solid var(--color-borde);
+	border-radius: var(--radio-pequeno);
+	background-color: var(--color-superficie);
+	color: inherit;
+	font: inherit;
+	font-size: 0.9375rem;
+	font-weight: 600;
+	cursor: pointer;
+}
+
+.boton--principal {
+	border-color: transparent;
+	background-color: var(--color-acento);
+	color: var(--color-acento-texto);
+}
+
+/* ------------------------------------------------------------------ Aviso */
+
+.aviso-error {
+	margin: 0 0 var(--espacio-4);
+	padding: var(--espacio-3);
+	border: 1px solid var(--color-peligro);
+	border-radius: var(--radio-pequeno);
+	background-color: var(--color-superficie);
+	color: var(--color-peligro);
+	font-size: 0.875rem;
+}
+
+.lista-vacia {
+	margin: var(--espacio-6) 0;
+	color: var(--color-texto-suave);
+	text-align: center;
+}
+
+/* ------------------------------------------------------------------ Lista */
+
+/*
+ * Una sola declaración en lugar de breakpoints: `auto-fill` mete tantas columnas de al menos 260px
+ * como quepan, así que la rejilla es responsiva sola. El `minmax(0, …)` evita que una palabra muy
+ * larga ensanche la columna y desborde la página.
+ *
+ * `align-items: start` hace que cada tarjeta tome su altura natural en vez de estirarse a la más
+ * alta de su fila.
+ */
+.lista {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+	align-items: start;
+	gap: var(--espacio-3);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+/* ------------------------------------------------------------------ Tarea */
+
+.tarea {
+	display: flex;
+	flex-direction: column;
+	gap: var(--espacio-2);
+	padding: var(--espacio-3);
+	border: 1px solid var(--color-borde);
+	border-radius: var(--radio);
+	background-color: var(--color-superficie);
+	box-shadow: var(--sombra);
+}
+
+.tarea--completada {
+	background-color: var(--color-superficie-suave);
+}
+
+.tarea__cabecera {
+	display: flex;
+	align-items: center;
+	gap: var(--espacio-2);
+}
+
+.tarea__casilla {
+	width: 1.125rem;
+	height: 1.125rem;
+	margin: 0;
+	accent-color: var(--color-exito);
+	cursor: pointer;
+}
+
+.tarea__texto {
+	margin: 0;
+	font-size: 0.875rem;
+	overflow-wrap: anywhere;
+}
+
+.tarea--completada .tarea__texto {
+	color: var(--color-texto-suave);
+	text-decoration: line-through;
+}
+
+.tarea__editor {
+	width: 100%;
+	padding: var(--espacio-2);
+	border: 1px solid var(--color-acento);
+	border-radius: var(--radio-pequeno);
+	background-color: var(--color-superficie);
+	color: inherit;
+	font: inherit;
+	font-size: 0.875rem;
+	resize: vertical;
+}
+
+.tarea__acciones {
+	display: flex;
+	gap: var(--espacio-2);
+	margin-top: auto;
+	padding-top: var(--espacio-1);
+}
+
+.tarea__accion {
+	flex: 1 1 0;
+	min-width: 0;
+	min-height: 2rem;
+	padding: var(--espacio-1) var(--espacio-2);
+	border: 1px solid var(--color-borde);
+	border-radius: var(--radio-pequeno);
+	background-color: transparent;
+	color: var(--color-texto-suave);
+	font: inherit;
+	font-size: 0.75rem;
+	font-weight: 600;
+	cursor: pointer;
+}
+
+.tarea__accion--peligro {
+	color: var(--color-peligro);
+}
+
+/* --------------------------------------------------- Movimiento reducido */
+
+@media (prefers-reduced-motion: reduce) {
+
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.01ms;
+		animation-iteration-count: 1;
+		transition-duration: 0.01ms;
+	}
+}

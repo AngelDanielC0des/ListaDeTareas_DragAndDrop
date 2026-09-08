@@ -1,0 +1,37 @@
+# Compila y ejecuta los tests en cada empujón a cualquiera de las tres versiones.
+#
+# Usa ./mvnw, así que depende de que el bit de ejecución de ese archivo esté puesto en git
+# (git update-index --chmod=+x mvnw); si no, aquí fallaría con "Permission denied".
+name: build
+
+on:
+  push:
+    branches: [master, listatareasv1, listatareasv0]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  verificar:
+    name: Compilar y probar
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Preparar Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Compilar y ejecutar los tests
+        run: ./mvnw --batch-mode --no-transfer-progress clean verify
+
+      - name: Publicar los informes de los tests
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: informes-surefire
+          path: target/surefire-reports/
+          if-no-files-found: ignore
