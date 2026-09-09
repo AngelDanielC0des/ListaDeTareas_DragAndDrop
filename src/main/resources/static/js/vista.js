@@ -141,9 +141,25 @@ export function configurarLimiteDeTexto(maximo) {
 
 /* --------------------------------------------------------------- Pintar */
 
-/** Reconstruye la lista completa. Solo para cambios estructurales. */
-export function pintarLista() {
-	conTransicion(reconstruirLista);
+/**
+ * Reconstruye la lista completa. Solo para cambios estructurales.
+ *
+ * `alTerminarDePintar` se ejecuta **dentro** del cambio del DOM, justo después de reconstruirlo, y
+ * ese detalle importa: `startViewTransition` aplaza el callback, así que quien necesite trabajar
+ * sobre las tarjetas recién pintadas —engancharles el arrastre— no puede hacerlo al volver de aquí.
+ *
+ * No se usa la promesa `updateCallbackDone` para esperar, aunque parezca lo natural: cuando dos
+ * repintados se solapan el navegador **cancela** la primera transición y esa promesa **rechaza** con
+ * un AbortError. Eso dejaba el arrastre sin enganchar al cargar la página y, de paso, enseñaba un
+ * error al usuario. Dentro del callback no hay nada que se pueda cancelar.
+ *
+ * @param {(() => void)} [alTerminarDePintar]
+ */
+export function pintarLista(alTerminarDePintar) {
+	conTransicion(() => {
+		reconstruirLista();
+		alTerminarDePintar?.();
+	});
 }
 
 /**

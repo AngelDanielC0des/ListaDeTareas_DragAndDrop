@@ -1,0 +1,28 @@
+Arreglar el arrastre y devolver la rejilla en escritorio
+
+El arrastre no funcionaba nunca. La causa: cuando dos repintados se
+solapan el navegador cancela la transicion de vista y su promesa rechaza
+con AbortError; ese rechazo cortaba la cadena y el reenganche de
+SortableJS no llegaba a ejecutarse, ademas de ensenarle el error al
+usuario. Ahora el reenganche va dentro del callback que cambia el DOM,
+donde no hay nada que se pueda cancelar. Comprobado en el navegador con
+un arrastre real: la tarjeta cambia de sitio y el orden se persiste.
+
+Las tareas vuelven a una rejilla de 2, 3 y 4 columnas dentro de cada
+seccion. Una por fila ocupando todo el ancho no era lo pedido y ademas
+desperdiciaba la pantalla en escritorio.
+
+Las acciones de la tarjeta pasan de tres botones anchos con texto, que
+ocupaban casi 400 px cada uno, a iconos pequenos arriba a la derecha que
+aparecen al pasar por encima. En tactil se quedan siempre visibles,
+porque alli no existe el pasar por encima.
+
+El asa de arrastre se mueve a la izquierda: al poner las acciones arriba
+a la derecha quedaba tapada y no habia forma de agarrar la tarjeta.
+
+Los recursos estaticos se sirven con Cache-Control: no-cache. Sin el,
+Spring solo manda Last-Modified y el navegador aplica cache heuristica,
+asi que tras desplegar la gente seguiria viendo el CSS y el JavaScript
+viejos sin forma de saberlo.
+
+206 pruebas en verde y 0 errores de tipos.

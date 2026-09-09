@@ -176,9 +176,13 @@ function registrarEventos() {
  * arrastre dejaría de responder sin dar ninguna pista de por qué.
  */
 function repintar() {
-	vista.pintarLista();
-	arrastre.rehacer();
-	arrastre.permitirReordenar(!estado.hayFiltroActivo());
+	// El reenganche va DENTRO del pintado, no después: `pintarLista()` aplaza el cambio del DOM
+	// dentro de una transición de vista, así que al volver de aquí las listas nuevas todavía no
+	// existen y el arrastre se ataría a las viejas.
+	vista.pintarLista(() => {
+		arrastre.rehacer();
+		arrastre.permitirReordenar(!estado.hayFiltroActivo());
+	});
 }
 
 /* ------------------------------------------------------------- Manejadores */

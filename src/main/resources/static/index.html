@@ -322,11 +322,12 @@
 	-->
 	<template id="plantilla-tarea">
 		<li class="tarea">
+			<!--
+				El asa va a la IZQUIERDA, junto a la casilla, y no arriba a la derecha: ahí es donde
+				aparecen ahora las acciones al pasar por encima, y se tapaban entre sí hasta el punto
+				de que no se podía agarrar la tarjeta para arrastrarla.
+			-->
 			<div class="tarea__cabecera">
-				<span class="tarea__control-completada">
-					<input class="tarea__casilla" type="checkbox">
-					<label class="visualmente-oculto">Completada</label>
-				</span>
 				<button class="tarea__asa" type="button">
 					<svg class="icono" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
 						<circle cx="9" cy="6" r="1.5" />
@@ -337,6 +338,11 @@
 						<circle cx="15" cy="18" r="1.5" />
 					</svg>
 				</button>
+
+				<span class="tarea__control-completada">
+					<input class="tarea__casilla" type="checkbox">
+					<label class="visualmente-oculto">Completada</label>
+				</span>
 			</div>
 
 			<p class="tarea__texto"></p>

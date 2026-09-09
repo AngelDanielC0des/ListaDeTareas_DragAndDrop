@@ -448,29 +448,54 @@ body {
  * poco y una de dos líneas ocupa más, en vez de estirarse todas a la más alta de su fila.
  */
 /*
- * Una tarea por fila, no una rejilla.
+ * Rejilla de tarjetas, dentro de cada sección.
  *
- * Antes eran de 2 a 4 columnas según la pantalla. Con grupos eso no funciona: agrupar y encolumnar
- * compiten, porque una rejilla con pocas tareas por grupo deja filas a medias y huecos, y la vista
- * deja de leerse como una lista de secciones. Es lo que hacen Things, Todoist y TickTick, y por el
- * mismo motivo.
+ * Dos columnas en móvil y más según crece la pantalla. La rejilla vive DENTRO de la sección, así que
+ * cada grupo tiene la suya y las tarjetas no se mezclan entre grupos.
+ *
+ * `align-items: start` es lo que deja que cada tarjeta tome su altura natural en vez de estirarse
+ * hasta la más alta de su fila, que es lo que hace una rejilla por defecto.
  */
 .lista {
-	display: flex;
-	flex-direction: column;
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	align-items: start;
 	gap: var(--espacio-2);
 	margin: 0;
 	padding: 0;
 	list-style: none;
 }
 
+@media (min-width: 600px) {
+
+	.lista {
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+	}
+}
+
+@media (min-width: 1024px) {
+
+	.lista {
+		grid-template-columns: repeat(4, minmax(0, 1fr));
+	}
+}
+
 /* ------------------------------------------------------------------ Tarea */
 
+/*
+ * `position: relative` es lo que ancla las acciones, que van en absoluto arriba a la derecha.
+ *
+ * `cursor: pointer` porque la tarjeta entera abre la edición al pulsarla: si se comporta como un
+ * botón, tiene que parecerlo. Los controles de dentro recuperan su propio cursor.
+ */
 .tarea {
+	position: relative;
 	display: flex;
 	flex-direction: column;
 	gap: var(--espacio-2);
 	padding: var(--espacio-3);
+	padding-right: var(--espacio-6);
+	cursor: pointer;
 	border: 1px solid var(--color-borde);
 	border-radius: var(--radio);
 	background-color: var(--color-superficie);
@@ -495,7 +520,6 @@ body {
 .tarea__cabecera {
 	display: flex;
 	align-items: center;
-	justify-content: space-between;
 	gap: var(--espacio-2);
 }
 
@@ -601,31 +625,43 @@ body {
 	cursor: pointer;
 }
 
+/*
+ * Las acciones van arriba a la derecha y solo con icono, no en una fila de tres botones anchos con
+ * su palabra. Con la rejilla, esos botones ocupaban casi toda la tarjeta y le robaban el
+ * protagonismo al texto, que es lo único que de verdad importa de una tarea.
+ *
+ * En escritorio aparecen al pasar por encima o al enfocar con el teclado; en táctil no hay «pasar
+ * por encima», así que ahí se quedan siempre visibles (más abajo).
+ */
 .tarea__acciones {
+	position: absolute;
+	top: var(--espacio-2);
+	right: var(--espacio-2);
 	display: flex;
-	gap: var(--espacio-2);
-	margin-top: auto;
-	padding-top: var(--espacio-1);
+	gap: var(--espacio-1);
+	opacity: 0;
+	transition: opacity 120ms ease;
+}
+
+.tarea:hover .tarea__acciones,
+.tarea:focus-within .tarea__acciones {
+	opacity: 1;
 }
 
 .tarea__accion {
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
-	gap: var(--espacio-1);
-	flex: 1 1 0;
-	min-width: 0;
-	min-height: 2rem;
-	padding: var(--espacio-1) var(--espacio-2);
-	border: 1px solid var(--color-borde);
+	min-width: 1.75rem;
+	min-height: 1.75rem;
+	padding: var(--espacio-1);
+	border: 0;
 	border-radius: var(--radio-pequeno);
-	background-color: transparent;
+	background-color: var(--color-superficie);
 	color: var(--color-texto-suave);
 	font: inherit;
-	font-size: 0.75rem;
-	font-weight: 600;
 	cursor: pointer;
-	transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+	transition: background-color 120ms ease, color 120ms ease;
 }
 
 .tarea__accion:hover {
@@ -822,19 +858,31 @@ kbd {
  * botones con su palabra no caben. Se deja solo el icono y el nombre accesible lo aporta el
  * aria-label, así que para un lector de pantalla no cambia nada.
  */
-@media (max-width: 479px) {
+/*
+ * El texto de cada acción existe pero no se ve: el nombre accesible lo pone el aria-label, y este
+ * <span> es lo que se leería si alguien navegase con el CSS desactivado.
+ */
+.tarea__accion-texto {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	margin: -1px;
+	padding: 0;
+	border: 0;
+	overflow: hidden;
+	white-space: nowrap;
+	clip-path: inset(50%);
+}
 
-	.tarea__accion-texto {
-		position: absolute;
-		width: 1px;
-		height: 1px;
-		margin: -1px;
-		padding: 0;
-		border: 0;
-		overflow: hidden;
-		white-space: nowrap;
-		clip-path: inset(50%);
+/* En táctil no existe el «pasar por encima», así que las acciones no pueden esconderse ahí. */
+@media (hover: none) {
+
+	.tarea__acciones {
+		opacity: 1;
 	}
+}
+
+@media (max-width: 479px) {
 
 	.tarea__accion {
 		padding: var(--espacio-1);
