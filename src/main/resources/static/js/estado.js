@@ -267,7 +267,7 @@ export function moverTareaAGrupo(id, idGrupo, posicionEnGrupo) {
 	const destino = Math.min(Math.max(posicionEnGrupo, 0), enSuGrupo.length);
 	enSuGrupo.splice(destino, 0, movida);
 
-    // El orden global se recompone sección a sección, en el mismo orden en que se pintan.
+	// El orden global se recompone sección a sección, en el mismo orden en que se pintan.
 	const reordenadas = [];
 	for (const grupo of grupos) {
 		if (grupo.id === idGrupo) {

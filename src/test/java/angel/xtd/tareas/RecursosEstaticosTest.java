@@ -34,6 +34,13 @@ class RecursosEstaticosTest {
 	/** Los comentarios del HTML, que hablan de {@code <svg>} sin ser ninguno. */
 	private static final Pattern COMENTARIO_HTML = Pattern.compile("<!--.*?-->", Pattern.DOTALL);
 
+	/**
+	 * El favicon va incrustado como {@code data:image/svg+xml,<svg ...>}. Ese SVG no es un elemento de
+	 * la página, es el contenido de un atributo, y no llega nunca al árbol de accesibilidad: exigirle
+	 * un {@code aria-hidden} no tendría sentido.
+	 */
+	private static final Pattern SVG_EN_UN_ATRIBUTO = Pattern.compile("data:image/svg[^\"']*");
+
 	/** La clave de localStorage tal y como la escribe el script en línea del HTML. */
 	private static final Pattern CLAVE_DEL_TEMA = Pattern.compile("localStorage\\.getItem\\('([^']+)'\\)");
 
@@ -147,6 +154,32 @@ class RecursosEstaticosTest {
 			.contains("display: none !important");
 	}
 
+	/**
+	 * Regresión de un fallo que la hoja llevaba dentro y que no se ve leyéndola.
+	 *
+	 * <p>El bloque que apaga las animaciones usaba el selector universal, que puntúa (0,0,0), así que
+	 * <b>cualquier</b> regla de clase le ganaba: con el movimiento reducido pedido, las tarjetas
+	 * seguían animando sus 150 ms. Se arregló subiéndolo a {@code :root *}, que puntúa igual que una
+	 * clase y desempata por orden, y por eso tiene que ser <b>lo último del archivo</b>: si alguien
+	 * escribe estilos por debajo, sus transiciones vuelven a ganar y el fallo regresa en silencio.
+	 *
+	 * <p>Se comprueba sobre el texto y no en el navegador porque es una propiedad del archivo —qué va
+	 * antes y qué va después—, y así salta en un {@code ./mvnw verify} a secas.
+	 */
+	@Test
+	@DisplayName("el apagado de animaciones puntúa como una clase y es lo último de la hoja")
+	void elMovimientoReducidoGanaATodaLaHoja() throws IOException {
+		String css = leerRecurso(RUTA_CSS);
+
+		int posicionDelApagado = css.indexOf(":root *,");
+
+		assertThat(posicionDelApagado).as("el apagado global debe usar :root *, no el universal a secas")
+			.isNotNegative();
+		assertThat(css.lastIndexOf("transition"))
+			.as("hay transiciones declaradas por debajo del apagado, y esas le ganan por orden")
+			.isLessThan(posicionDelApagado + css.substring(posicionDelApagado).indexOf("}"));
+	}
+
 	@Test
 	@DisplayName("están el enlace de salto y el selector de fondo")
 	void tieneSaltoYSelectorDeFondo() throws IOException {
@@ -185,11 +218,12 @@ class RecursosEstaticosTest {
 	@DisplayName("el patrón encuentra cada etiqueta <svg> por separado")
 	void elPatronDeIconosEncuentraCadaEtiqueta() {
 		String html = "<!-- el <svg aria-hidden> del comentario no cuenta -->"
+				+ "<link rel=\"icon\" href=\"data:image/svg+xml,<svg viewBox='0 0 32 32'></svg>\">"
 				+ "<svg class=\"a\" aria-hidden=\"true\"><path/></svg><svg class=\"b\"></svg>";
 
 		List<String> etiquetas = buscarEtiquetasSvg(html);
 
-		assertThat(etiquetas).as("los comentarios no son elementos").hasSize(2);
+		assertThat(etiquetas).as("ni los comentarios ni el favicon incrustado son elementos").hasSize(2);
 		assertThat(etiquetas.get(1)).as("debe poder detectar un svg SIN aria-hidden")
 			.doesNotContain("aria-hidden");
 	}
@@ -197,12 +231,14 @@ class RecursosEstaticosTest {
 	/**
 	 * Las etiquetas {@code <svg>} de verdad, sin las que solo se nombran en un comentario.
 	 *
-	 * <p>Los comentarios se quitan antes de buscar porque el HTML explica en uno de ellos que «el
-	 * signo va en un {@code <svg aria-hidden>}», y esa frase se colaba como si fuera un icono real.
+	 * <p>Se quitan antes de buscar los comentarios y los SVG incrustados en un atributo. Los primeros
+	 * porque el HTML explica en uno de ellos que «el signo va en un {@code <svg aria-hidden>}», y esa
+	 * frase se colaba como si fuera un icono real; los segundos porque el favicon es un data URI y no
+	 * un elemento de la página.
 	 */
 	private List<String> buscarEtiquetasSvg(String html) {
-		String sinComentarios = COMENTARIO_HTML.matcher(html).replaceAll("");
-		List<String> resultado = ETIQUETA_SVG.matcher(sinComentarios).results().map(MatchResult::group).toList();
+		String soloElementos = SVG_EN_UN_ATRIBUTO.matcher(COMENTARIO_HTML.matcher(html).replaceAll("")).replaceAll("");
+		List<String> resultado = ETIQUETA_SVG.matcher(soloElementos).results().map(MatchResult::group).toList();
 		return resultado;
 	}
 

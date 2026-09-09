@@ -69,8 +69,8 @@ const elementos = {
 	resumen: exigirElemento('resumen', HTMLElement),
 	contador: exigirElemento('contador', HTMLElement),
 	campoTexto: exigirElemento('campo-texto', HTMLInputElement),
-	botonAnadir: exigirElemento('boton-anadir', HTMLButtonElement),
 	progreso: exigirElemento('progreso', HTMLProgressElement),
+	botonEnviarTarea: exigirElemento('boton-anadir-tarea', HTMLButtonElement),
 	botonTema: exigirElemento('boton-tema', HTMLButtonElement),
 	temaTexto: exigirElemento('tema-texto', HTMLElement),
 	avisoDeshacer: exigirElemento('aviso-deshacer', HTMLElement),
@@ -94,7 +94,11 @@ const elementos = {
 	formularioGrupo: exigirElemento('formulario-grupo', HTMLFormElement),
 	campoGrupo: exigirElemento('campo-grupo', HTMLInputElement),
 	botonAbrirGrupo: exigirElemento('boton-abrir-grupo', HTMLButtonElement),
-	botonCancelarGrupo: exigirElemento('boton-cancelar-grupo', HTMLButtonElement)
+	botonCancelarGrupo: exigirElemento('boton-cancelar-grupo', HTMLButtonElement),
+	botonAnadir: exigirElemento('boton-anadir', HTMLButtonElement),
+	botonBuscar: exigirElemento('boton-buscar', HTMLButtonElement),
+	menuAnadir: exigirElemento('menu-anadir', HTMLElement),
+	panelBusqueda: exigirElemento('panel-busqueda', HTMLElement)
 };
 
 /** Se exponen para que `app.js` y `arrastre.js` cuelguen sus listeners sin volver a buscarlos. */
@@ -113,7 +117,7 @@ export const campoBusqueda = elementos.campoBusqueda;
  * @param {boolean} bloqueado
  */
 export function bloquearAlta(bloqueado) {
-	elementos.botonAnadir.disabled = bloqueado;
+	elementos.botonEnviarTarea.disabled = bloqueado;
 }
 
 /** Lo fija el servidor al arrancar; hasta entonces no se limita nada por el lado del navegador. */
@@ -182,7 +186,18 @@ function conTransicion(cambiarElDom) {
 	const puedeAnimar = typeof document.startViewTransition === 'function' && !prefiereMenosMovimiento;
 
 	if (puedeAnimar) {
-		document.startViewTransition(cambiarElDom);
+		const transicion = document.startViewTransition(cambiarElDom);
+
+		// Cuando un repintado pisa al anterior, el navegador CANCELA el primero y sus promesas
+		// rechazan con AbortError. No es un fallo: es justo lo que tiene que pasar. Pero al no
+		// recogerlas quedaban como rechazadas sin gestionar, despertaban al manejador global de
+		// `unhandledrejection` de app.js y el usuario veía «Ha ocurrido un error inesperado» por
+		// escribir deprisa en el buscador, que repinta a cada tecla.
+		//
+		// Se callan `ready` y `finished`, no `updateCallbackDone`: esa solo rechaza si revienta el
+		// código que cambia el DOM, y ese sí es un fallo de verdad que debe llegar al manejador.
+		transicion.ready.catch(() => {});
+		transicion.finished.catch(() => {});
 	}
 	else {
 		cambiarElDom();
@@ -251,17 +266,51 @@ function construirSeccion(grupo) {
 		lista.appendChild(construirTarjeta(tarea, idEnEdicion === tarea.id));
 	}
 
-	// El hueco vacío solo tiene sentido en un grupo: es donde se sueltan las tareas al arrastrarlas.
-	exigirDentro(seccion, '.seccion__vacia', HTMLElement).hidden = esSueltas || tareas.length > 0;
+	mostrarElHuecoVacio(seccion, grupo, tareas.length);
 
 	return seccion;
+}
+
+/**
+ * Enseña el hueco vacío que corresponda, o ninguno.
+ *
+ * Un grupo puede quedarse sin tarjetas por dos motivos que no significan lo mismo: no tiene ninguna
+ * tarea, o las tiene pero el filtro las esconde. En el primero se invita a arrastrar hasta ahí; en
+ * el segundo esa invitación engaña, porque además con un filtro puesto el arrastre está desactivado.
+ *
+ * En las sueltas no se enseña ninguno: no son un destino donde soltar, son las que no están en
+ * ningún grupo.
+ *
+ * @param {HTMLElement} seccion
+ * @param {import('./tipos.js').Grupo | null} grupo
+ * @param {number} visibles cuántas tarjetas se han pintado en esta sección
+ */
+function mostrarElHuecoVacio(seccion, grupo, visibles) {
+	// Cada uno por su modificador y no «el primer .seccion__vacia»: los dos comparten la clase base
+	// para heredar el estilo, y elegir por orden se rompería en cuanto alguien los intercambiara.
+	const invitacion = exigirDentro(seccion, '.seccion__vacia--invitacion', HTMLElement);
+	const porElFiltro = exigirDentro(seccion, '.seccion__vacia--filtrada', HTMLElement);
+
+	if (grupo === null || visibles > 0) {
+		invitacion.hidden = true;
+		porElFiltro.hidden = true;
+	}
+	else if (estado.contarProgresoDeGrupo(grupo.id).total > 0) {
+		invitacion.hidden = true;
+		porElFiltro.hidden = false;
+	}
+	else {
+		invitacion.hidden = false;
+		porElFiltro.hidden = true;
+	}
 }
 
 /**
  * Nombre, cuenta, progreso y acciones de la cabecera.
  *
  * La barra de progreso solo aparece en los grupos. En las tareas sueltas no significa nada: no son
- * un conjunto que se pueda dar por terminado, son simplemente las que no están clasificadas.
+ * un conjunto que se pueda dar por terminado, son simplemente las que no están clasificadas. Y su
+ * cabecera entera se esconde mientras no haya ningún grupo, porque entonces no separa nada.
  *
  * @param {HTMLElement} seccion
  * @param {import('./tipos.js').Grupo | null} grupo
@@ -279,6 +328,13 @@ function rellenarCabeceraDeSeccion(seccion, grupo) {
 		cuenta.textContent = '';
 		progreso.hidden = true;
 		acciones.hidden = true;
+
+		// Sin ningún grupo creado, esta es la única lista de la pantalla y su cabecera no la distingue
+		// de nada: solo ocupa sitio antes de la primera tarea. Se esconde a la vista, no al lector de
+		// pantalla, que sigue necesitando el nombre para anunciar la región.
+		const hayGrupos = estado.obtenerGrupos().length > 0;
+		const cabecera = exigirDentro(seccion, '.seccion__cabecera', HTMLElement);
+		cabecera.classList.toggle('visualmente-oculto', !hayGrupos);
 	}
 	else {
 		nombre.textContent = grupo.nombre;
@@ -341,7 +397,7 @@ function actualizarAvisoDeArrastre() {
 /** Cuántas tareas se están viendo, para anunciarlo a quien no ve la lista. */
 export function describirResultados() {
 	const visibles = estado.obtenerTareasVisibles().length;
-    const total = estado.obtenerTareas().length;
+	const total = estado.obtenerTareas().length;
 
 	let resultado;
 	if (!estado.hayFiltroActivo()) {
@@ -492,7 +548,12 @@ function nombrarLosBotones(tarjeta, tarea) {
 		'.tarea__asa': `Mover la tarea «${tarea.texto}»`,
 		'[data-accion="editar"]': `Editar la tarea «${tarea.texto}»`,
 		'[data-accion="eliminar"]': `Borrar la tarea «${tarea.texto}»`,
-		'[data-accion="fondo"]': `Elegir el fondo de la tarea «${tarea.texto}»`
+		'[data-accion="fondo"]': `Elegir el fondo de la tarea «${tarea.texto}»`,
+		// La confirmación también: un «alertdialog» que solo dice «Confirmar el borrado» obliga a
+		// rebuscar por la página cuál de las tareas es la que está preguntando.
+		'.tarea__confirmacion': `Confirmar el borrado de la tarea «${tarea.texto}»`,
+		'[data-accion="confirmar-borrado"]': `Sí, borrar la tarea «${tarea.texto}»`,
+		'[data-accion="cancelar-borrado"]': `No borrar la tarea «${tarea.texto}»`
 	};
 
 	for (const [selector, nombre] of Object.entries(nombresPorSelector)) {
@@ -500,7 +561,9 @@ function nombrarLosBotones(tarjeta, tarea) {
 	}
 }
 
-/** El párrafo que se ve y el cuadro de edición que hay debajo. *
+/**
+ * El párrafo que se ve y el cuadro de edición que hay debajo.
+ *
  * @param {HTMLLIElement} tarjeta
  * @param {import('./tipos.js').Tarea} tarea
  */
@@ -799,17 +862,26 @@ export function cerrarSelectorDeFondo() {
 /* ------------------------------------------------------------ Alta plegable */
 
 /**
- * Abre o cierra el formulario de alta.
+ * Abre o cierra el formulario de una tarea nueva.
  *
- * Al abrirlo el foco va al campo, para poder escribir sin tener que pulsar otra vez. Al cerrarlo
- * vuelve al botón: si se quedara donde estaba, el foco caería a un elemento que ya no se ve.
+ * Al abrirlo cierra el del grupo, si estaba: son dos formas de lo mismo y tenerlas a la vez solo
+ * confunde sobre cuál de ellas se va a enviar.
+ *
+ * El foco va al campo al abrir, para poder escribir sin pulsar otra vez, y al cerrar vuelve al «+» y
+ * no a la opción del menú que lo abrió: esa opción vive dentro de un popover ya cerrado, así que no
+ * se puede enfocar y el foco se perdería en el body.
+ *
+ * El `aria-expanded` se marca en la opción del menú, que es la que gobierna este formulario. En el
+ * «+» no cabe: ahí el navegador ya calcula el suyo a partir del popover que abre.
  *
  * @param {boolean} abierta
  */
 export function mostrarAlta(abierta) {
-	elementos.botonAbrirAlta.setAttribute('aria-expanded', String(abierta));
-	elementos.botonAbrirAlta.hidden = abierta;
+	if (abierta) {
+		elementos.formularioGrupo.hidden = true;
+	}
 	elementos.formularioAlta.hidden = !abierta;
+	elementos.botonAbrirAlta.setAttribute('aria-expanded', String(abierta));
 
 	if (abierta) {
 		elementos.campoTexto.focus();
@@ -817,7 +889,7 @@ export function mostrarAlta(abierta) {
 	else {
 		elementos.campoTexto.value = '';
 		actualizarContador();
-		elementos.botonAbrirAlta.focus();
+		elementos.botonAnadir.focus();
 	}
 }
 
@@ -828,16 +900,18 @@ export function estaAbiertaElAlta() {
 
 /** @param {boolean} abierta */
 export function mostrarAltaDeGrupo(abierta) {
-	elementos.botonAbrirGrupo.setAttribute('aria-expanded', String(abierta));
-	elementos.botonAbrirGrupo.hidden = abierta;
+	if (abierta) {
+		elementos.formularioAlta.hidden = true;
+	}
 	elementos.formularioGrupo.hidden = !abierta;
+	elementos.botonAbrirGrupo.setAttribute('aria-expanded', String(abierta));
 
 	if (abierta) {
 		elementos.campoGrupo.focus();
 	}
 	else {
 		elementos.campoGrupo.value = '';
-		elementos.botonAbrirGrupo.focus();
+		elementos.botonAnadir.focus();
 	}
 }
 
@@ -846,11 +920,73 @@ export function estaAbiertaElAltaDeGrupo() {
 	return resultado;
 }
 
+/**
+ * Marca en el botón de buscar que hay una búsqueda puesta.
+ *
+ * Con el buscador plegado detrás de una lupa, sin esto no habría forma de saber que la lista está
+ * filtrada: se vería una lista corta sin explicación.
+ *
+ * @param {boolean} hayBusqueda
+ */
+export function marcarBusquedaActiva(hayBusqueda) {
+	elementos.botonBuscar.classList.toggle('barra__accion--activa', hayBusqueda);
+	elementos.botonBuscar.setAttribute('aria-label',
+		hayBusqueda ? 'Buscar entre las tareas (hay una búsqueda puesta)' : 'Buscar entre las tareas');
+}
+
+/**
+ * Abre el buscador flotante y deja el cursor dentro.
+ *
+ * Hace falta porque el campo vive en un popover: enfocarlo sin abrirlo antes no haría nada, ya que
+ * lo que está en la capa superior sin mostrar no es enfocable.
+ */
+export function abrirBuscador() {
+	if (!elementos.panelBusqueda.matches(':popover-open')) {
+		elementos.panelBusqueda.showPopover();
+	}
+	elementos.campoBusqueda.focus();
+}
+
+/** Cierra el menú de añadir. Lo llama quien elige una opción, para que no se quede abierto detrás. */
+export function cerrarMenuDeAnadir() {
+	if (elementos.menuAnadir.matches(':popover-open')) {
+		elementos.menuAnadir.hidePopover();
+	}
+}
+
+/* --------------------------------------------- Confirmación de borrado */
+
+/**
+ * Enseña o esconde la confirmación de borrado dentro de una tarjeta.
+ *
+ * El foco va a «Cancelar» y no a «Borrar»: cuando aparece algo que puede destruir datos, lo que debe
+ * quedar bajo el dedo es la salida segura. Quien quiera borrar solo tiene que tabular una vez.
+ *
+ * @param {number} id
+ * @param {boolean} preguntando
+ */
+export function mostrarConfirmacionDeBorrado(id, preguntando) {
+	const tarjeta = obtenerTarjetaDeTarea(id);
+	if (tarjeta === null) {
+		return;
+	}
+
+	tarjeta.classList.toggle('tarea--confirmando', preguntando);
+	const confirmacion = exigirDentro(tarjeta, '.tarea__confirmacion', HTMLElement);
+	confirmacion.hidden = !preguntando;
+
+	if (preguntando) {
+		exigirDentro(tarjeta, '[data-accion="cancelar-borrado"]', HTMLButtonElement).focus();
+	}
+}
+
 export const campoGrupo = elementos.campoGrupo;
 
 export const formularioGrupo = elementos.formularioGrupo;
 
 export const botonAbrirAlta = elementos.botonAbrirAlta;
+
+export const botonAnadir = elementos.botonAnadir;
 
 export const botonCancelarAlta = elementos.botonCancelarAlta;
 

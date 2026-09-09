@@ -34,3 +34,9 @@ bin/
 
 ### Node (solo herramientas de desarrollo: la aplicacion no se compila) ###
 node_modules/
+
+### Mensajes de commit y capturas de las herramientas ###
+# mensaje.txt es el archivo que se le pasa a `git commit -F`. Se ha colado ya dos veces en el
+# repositorio, asi que aqui se queda.
+mensaje.txt
+.playwright-mcp/

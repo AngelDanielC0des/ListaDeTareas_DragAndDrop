@@ -337,17 +337,44 @@ describe('secciones y grupos', () => {
 		expect(progreso.value).toBe(1);
 	});
 
+	/** @param {string} modificador */
+	function huecoDeCasa(modificador) {
+		const casa = document.querySelector('[data-grupo="9"]');
+		return /** @type {HTMLElement} */ (casa?.querySelector(`.seccion__vacia--${modificador}`));
+	}
+
 	it('un grupo vacío invita a arrastrar tareas hasta él', () => {
 		estado.reemplazarGrupos({ grupos: [{ id: 9, nombre: 'Casa' }], asignaciones: {} });
 		vista.pintarLista();
 
-		const casa = document.querySelector('[data-grupo="9"]');
-		expect(/** @type {HTMLElement} */ (casa?.querySelector('.seccion__vacia')).hidden).toBe(false);
+		expect(huecoDeCasa('invitacion').hidden).toBe(false);
+		expect(huecoDeCasa('filtrada').hidden).toBe(true);
+	});
+
+	/**
+	 * Un grupo con tareas que el filtro esconde no está vacío, y además con un filtro puesto el
+	 * arrastre está desactivado: invitar a arrastrar ahí sería mentir dos veces.
+	 */
+	it('un grupo que el filtro deja sin tarjetas lo dice, y no invita a arrastrar', () => {
+		estado.reemplazarGrupos({ grupos: [{ id: 9, nombre: 'Casa' }], asignaciones: { 1: 9 } });
+		estado.buscar('no aparece en ninguna tarea');
+		vista.pintarLista();
+
+		expect(huecoDeCasa('filtrada').hidden).toBe(false);
+		expect(huecoDeCasa('invitacion').hidden).toBe(true);
+	});
+
+	it('un grupo con tarjetas a la vista no enseña ningún hueco', () => {
+		estado.reemplazarGrupos({ grupos: [{ id: 9, nombre: 'Casa' }], asignaciones: { 1: 9 } });
+		vista.pintarLista();
+
+		expect(huecoDeCasa('invitacion').hidden).toBe(true);
+		expect(huecoDeCasa('filtrada').hidden).toBe(true);
 	});
 
 });
 
-describe('alta plegable', () => {
+describe('alta desde el menú «+»', () => {
 
 	it('arranca plegada tras el botón «+»', () => {
 		const formulario = /** @type {HTMLElement} */ (document.getElementById('formulario-nueva'));
@@ -355,24 +382,106 @@ describe('alta plegable', () => {
 		expect(vista.estaAbiertaElAlta()).toBe(false);
 	});
 
-	it('al abrirla enseña el formulario y esconde el botón', () => {
+	/**
+	 * El «aria-expanded» va en la opción del menú, que es la que gobierna este formulario. En el «+»
+	 * no cabe: ahí el navegador ya calcula el suyo a partir del popover que abre.
+	 */
+	it('al abrirla enseña el formulario y lo declara en la opción del menú', () => {
 		vista.mostrarAlta(true);
 
 		expect(vista.estaAbiertaElAlta()).toBe(true);
-		expect(vista.botonAbrirAlta.hidden).toBe(true);
 		expect(vista.botonAbrirAlta.getAttribute('aria-expanded')).toBe('true');
+		expect(document.activeElement).toBe(vista.campoTexto);
 	});
 
-	/** Si el foco se quedara en un elemento que se acaba de ocultar, se perdería en el body. */
-	it('al cerrarla vuelve el foco al botón y se limpia lo escrito', () => {
+	/**
+	 * El foco vuelve al «+» y no a la opción que abrió el formulario: esa opción vive dentro de un
+	 * popover ya cerrado, no se puede enfocar, y el foco acabaría perdido en el body.
+	 */
+	it('al cerrarla vuelve el foco al «+» y se limpia lo escrito', () => {
 		vista.mostrarAlta(true);
 		vista.campoTexto.value = 'a medio escribir';
 
 		vista.mostrarAlta(false);
 
 		expect(vista.campoTexto.value).toBe('');
-		expect(document.activeElement).toBe(vista.botonAbrirAlta);
+		expect(document.activeElement).toBe(vista.botonAnadir);
 		expect(vista.botonAbrirAlta.getAttribute('aria-expanded')).toBe('false');
+	});
+
+	/** Los dos formularios salen del mismo «+»: verlos a la vez no diría cuál se va a enviar. */
+	it('abrir el alta de grupo cierra la de tarea, y al revés', () => {
+		vista.mostrarAlta(true);
+
+		vista.mostrarAltaDeGrupo(true);
+
+		expect(vista.estaAbiertaElAlta()).toBe(false);
+		expect(vista.estaAbiertaElAltaDeGrupo()).toBe(true);
+
+		vista.mostrarAlta(true);
+
+		expect(vista.estaAbiertaElAltaDeGrupo()).toBe(false);
+	});
+
+});
+
+describe('aviso de búsqueda puesta', () => {
+
+	/**
+	 * Con el buscador plegado detrás de una lupa, sin esta marca se vería una lista corta sin
+	 * ninguna pista de por qué faltan tareas.
+	 */
+	it('marca y desmarca la lupa, y lo dice también en su etiqueta', () => {
+		const lupa = /** @type {HTMLElement} */ (document.getElementById('boton-buscar'));
+
+		vista.marcarBusquedaActiva(true);
+
+		expect(lupa.classList.contains('barra__accion--activa')).toBe(true);
+		expect(lupa.getAttribute('aria-label')).toContain('hay una búsqueda puesta');
+
+		vista.marcarBusquedaActiva(false);
+
+		expect(lupa.classList.contains('barra__accion--activa')).toBe(false);
+		expect(lupa.getAttribute('aria-label')).toBe('Buscar entre las tareas');
+	});
+
+});
+
+describe('confirmación de borrado dentro de la tarjeta', () => {
+
+	/** @param {number} id */
+	function confirmacionDe(id) {
+		return /** @type {HTMLElement} */ (tarjeta(id).querySelector('.tarea__confirmacion'));
+	}
+
+	it('arranca escondida', () => {
+		expect(confirmacionDe(1).hidden).toBe(true);
+		expect(tarjeta(1).classList.contains('tarea--confirmando')).toBe(false);
+	});
+
+	/** El foco va a la salida segura: quien quiera borrar solo tiene que tabular una vez. */
+	it('al preguntar se enseña, se marca la tarjeta y el foco cae en «Cancelar»', () => {
+		vista.mostrarConfirmacionDeBorrado(1, true);
+
+		expect(confirmacionDe(1).hidden).toBe(false);
+		expect(tarjeta(1).classList.contains('tarea--confirmando')).toBe(true);
+		expect(/** @type {HTMLElement} */ (document.activeElement).dataset.accion).toBe('cancelar-borrado');
+	});
+
+	it('al cancelar se vuelve a esconder y la tarjeta deja de estar marcada', () => {
+		vista.mostrarConfirmacionDeBorrado(1, true);
+
+		vista.mostrarConfirmacionDeBorrado(1, false);
+
+		expect(confirmacionDe(1).hidden).toBe(true);
+		expect(tarjeta(1).classList.contains('tarea--confirmando')).toBe(false);
+	});
+
+	/** Solo se pregunta por la tarjeta pulsada; las demás siguen como estaban. */
+	it('no toca las demás tarjetas', () => {
+		vista.mostrarConfirmacionDeBorrado(1, true);
+
+		expect(confirmacionDe(2).hidden).toBe(true);
 	});
 
 });

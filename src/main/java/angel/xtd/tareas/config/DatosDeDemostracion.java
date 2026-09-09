@@ -57,11 +57,12 @@ public class DatosDeDemostracion {
 	 * Lo que ve alguien que abre la demo por primera vez.
 	 *
 	 * <p>Están elegidas para que la primera pantalla enseñe sola de qué va la aplicación: una que
-	 * invita a arrastrar, otra ya completada para que se vea el tachado y el progreso, una larga que
-	 * se recorta y saca el botón «Ver más», y dos con fondo.
+	 * invita a arrastrar, otra ya completada para que se vea cómo se atenúa sin moverse de sitio y
+	 * cómo cuenta en el progreso, una larga que se recorta y saca el botón «Ver más», y dos con
+	 * fondo.
 	 */
 	private static final List<TareaDeEjemplo> EJEMPLOS = List.of(
-			new TareaDeEjemplo("Arrástrame por el asa de la derecha", false, Fondo.ONDAS),
+			new TareaDeEjemplo("Arrástrame por el asa de la izquierda", false, Fondo.ONDAS),
 			new TareaDeEjemplo("Pulsa la casilla para completarme", true, Fondo.NINGUNO),
 			new TareaDeEjemplo("Este texto es deliberadamente largo para que se vea cómo la tarjeta lo recorta "
 					+ "a dos líneas y aparece el botón «Ver más», que lo despliega sin mover el resto de la "

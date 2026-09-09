@@ -48,8 +48,11 @@ let temporizadorDeTexto = null;
 /** @type {ReturnType<typeof setTimeout> | null} */
 let temporizadorDeOrden = null;
 
-/** Estado de la lista antes de la primera reordenación de una ráfaga, por si hay que deshacerla. */
-/** @type {import('./tipos.js').Tarea[] | null} */
+/**
+ * Estado de la lista antes de la primera reordenación de una ráfaga, por si hay que deshacerla.
+ *
+ * @type {import('./tipos.js').Tarea[] | null}
+ */
 let respaldoAntesDeReordenar = null;
 
 /**
@@ -132,12 +135,18 @@ function registrarEventos() {
 	// El foco no burbujea, pero focusout sí, que es lo que permite delegarlo en el contenedor.
 	vista.secciones.addEventListener('focusout', alSalirDelEditor);
 
-	// Alta de tareas, plegada tras un «+».
-	vista.botonAbrirAlta.addEventListener('click', () => vista.mostrarAlta(true));
-	vista.botonCancelarAlta.addEventListener('click', () => vista.mostrarAlta(false));
+	// El «+» abre un menú (un popover nativo) y cada opción despliega su formulario. El menú se
+	// cierra a mano al elegir: si no, se quedaría flotando por encima del campo que acaba de abrir.
+	vista.botonAbrirAlta.addEventListener('click', () => {
+		vista.cerrarMenuDeAnadir();
+		vista.mostrarAlta(true);
+	});
+	vista.botonAbrirGrupo.addEventListener('click', () => {
+		vista.cerrarMenuDeAnadir();
+		vista.mostrarAltaDeGrupo(true);
+	});
 
-	// Alta de grupos, con el mismo patrón.
-	vista.botonAbrirGrupo.addEventListener('click', () => vista.mostrarAltaDeGrupo(true));
+	vista.botonCancelarAlta.addEventListener('click', () => vista.mostrarAlta(false));
 	vista.botonCancelarGrupo.addEventListener('click', () => vista.mostrarAltaDeGrupo(false));
 	vista.formularioGrupo.addEventListener('submit', (evento) => {
 		evento.preventDefault();
@@ -182,30 +191,38 @@ function repintar() {
 	vista.pintarLista(() => {
 		arrastre.rehacer();
 		arrastre.permitirReordenar(!estado.hayFiltroActivo());
+		vista.marcarBusquedaActiva(estado.obtenerFiltro().busqueda !== '');
 	});
 }
 
 /* ------------------------------------------------------------- Manejadores */
 
 /**
- * Reparte los clics de la lista según el botón que se haya pulsado.
+ * Reparte los clics de la lista.
  *
- * Los casos son excluyentes —un botón es uno de los cuatro— así que se escriben como un `switch` y
- * no como cuatro `if` sueltos con su `return`: de un vistazo se ve que forman una sola decisión y
- * que están todos contemplados.
+ * Pulsar en cualquier parte de la tarjeta abre la edición, que es lo que espera cualquiera al hacer
+ * clic sobre un texto que se puede cambiar. Se descuentan los sitios donde el clic significa otra
+ * cosa: la casilla de completar, el asa de arrastre, los botones de acción, el «Ver más» y la
+ * confirmación de borrado. Sin esa lista, marcar una tarea como hecha también la abriría para
+ * editarla.
+ *
+ * @param {Event} evento
  */
-/** @param {Event} evento */
 function alPulsarEnLista(evento) {
 	if (!(evento.target instanceof Element)) {
 		return;
 	}
+
 	const boton = evento.target.closest('button');
-	const id = idDeLaTarjetaDe(boton);
-	if (boton === null || id === null) {
+	const id = idDeLaTarjetaDe(evento.target);
+	if (id === null) {
 		return;
 	}
 
-	if (boton.classList.contains('tarea__boton-desplegar')) {
+	if (boton === null) {
+		abrirEdicionSiSePuede(evento.target, id);
+	}
+	else if (boton.classList.contains('tarea__boton-desplegar')) {
 		estado.alternarDesplegada(id);
 		vista.actualizarTarjeta(id);
 	}
@@ -215,20 +232,48 @@ function alPulsarEnLista(evento) {
 				elegirFondo(id);
 				break;
 			case 'eliminar':
+				vista.mostrarConfirmacionDeBorrado(id, true);
+				break;
+			case 'confirmar-borrado':
 				eliminarTarea(id);
+				break;
+			case 'cancelar-borrado':
+				vista.mostrarConfirmacionDeBorrado(id, false);
 				break;
 			case 'editar':
 				alternarEdicion(id);
 				break;
 			default:
-				// Un botón de la tarjeta sin acción reconocida: no hay nada que hacer.
+				// El asa de arrastre y cualquier otro botón sin acción: no abren la edición.
 				break;
 		}
 	}
 }
 
-/** Entrar o salir de la edición, según si esa tarea ya se estaba editando. */
-/** @param {number} id */
+/**
+ * Abre la edición al pulsar en el cuerpo de la tarjeta.
+ *
+ * Se descarta si el clic cayó en la casilla, en su etiqueta o en el cuadro de edición ya abierto:
+ * en la casilla porque completar no es editar, y en el editor porque ahí el clic sirve para colocar
+ * el cursor.
+ *
+ * @param {Element} donde
+ * @param {number} id
+ */
+function abrirEdicionSiSePuede(donde, id) {
+	const esUnControl = donde.closest('.tarea__control-completada, .tarea__editor, .tarea__confirmacion') !== null;
+	const yaSeEstabaEditando = estado.obtenerIdEnEdicion() === id;
+
+	if (!esUnControl && !yaSeEstabaEditando) {
+		empezarEdicion(id);
+	}
+}
+
+/**
+ * Entrar o salir de la edición, según si esa tarea ya se estaba editando.
+ *
+ * @param {number} id
+ */
 function alternarEdicion(id) {
 	if (estado.obtenerIdEnEdicion() === id) {
 		terminarEdicion(id, { cancelar: false });
@@ -422,6 +467,7 @@ function eliminarTarea(id) {
 		return;
 	}
 
+	// La confirmación ya se ha dado dentro de la tarjeta, así que aquí solo queda ejecutarla.
 	// Solo se sostiene un borrado a la vez: si había otro esperando, se confirma ya. Apilar avisos
 	// complicaría la interfaz para un caso que casi no ocurre.
 	confirmarBorradoPendiente();
@@ -891,7 +937,8 @@ function alPulsarAtajo(evento) {
 		vista.alternarAtajos();
 	}
 	else if (evento.key === '/') {
-		vista.campoBusqueda.focus();
+		// El buscador vive en un popover: hay que abrirlo antes de poder enfocar su campo.
+		vista.abrirBuscador();
 	}
 	else {
 		vista.mostrarAlta(true);
@@ -941,7 +988,9 @@ function deshacerCambioOptimista(respaldo, error) {
 	manejarError(error);
 }
 
-/** Único punto donde un error se convierte en algo que el usuario puede leer. *
+/**
+ * Único punto donde un error se convierte en algo que el usuario puede leer.
+ *
  * @param {unknown} error
  */
 function manejarError(error) {

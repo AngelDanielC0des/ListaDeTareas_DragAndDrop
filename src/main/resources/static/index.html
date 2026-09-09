@@ -23,6 +23,14 @@
 		}
 	</script>
 
+	<!--
+		Favicon en línea, como data URI. Sin él el navegador pide /favicon.ico en cada carga y se
+		lleva un 404 que ensucia la consola. Va incrustado y no como archivo para no añadir una
+		petición más solo por un icono de 16 píxeles.
+	-->
+	<link rel="icon"
+		href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%232f6df6'/><path d='M9 16.5l4.5 4.5L23 11' fill='none' stroke='white' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'/></svg>">
+
 	<link rel="stylesheet" href="css/estilos.css">
 </head>
 
@@ -67,33 +75,112 @@
 
 	<main class="contenido-principal">
 		<!--
-			El alta arranca plegada en un botón «+» y se despliega al pulsarlo. Deja la pantalla más
-			limpia y hace que lo primero que se vea sean las tareas y no un campo vacío.
+			Barra de herramientas: buscar, filtrar y añadir, todo en una fila.
 
-			El botón lleva aria-expanded porque gobierna la visibilidad del formulario: sin él, quien
-			usa un lector de pantalla no sabría que hay algo que se abre ni si está abierto.
+			Antes esto ocupaba tres bloques a ancho completo —un botón «Nueva tarea», la fila del buscador
+			con sus filtros y otro botón «Nuevo grupo»— y se comía un tercio de la pantalla antes de que
+			apareciera la primera tarea. Lo que importa son las tareas, no los mandos para manejarlas.
 
-			Ni el campo ni la plantilla de abajo llevan un maxlength escrito a mano: el límite lo
-			dicta el servidor y lo aplica vista.js con lo que devuelve /tarea/configuracion.
+			El buscador y el menú de añadir son `popover` nativos: traen el cierre al pulsar fuera, el
+			cierre con Escape, la devolución del foco al botón que los abrió y el dibujado por encima de
+			todo. `popovertarget` los abre sin escribir ni un manejador ni una línea de ARIA.
 		-->
-		<div class="alta">
-			<button class="alta__abrir" id="boton-abrir-alta" type="button" aria-expanded="false"
-				aria-controls="formulario-nueva">
+		<div class="barra">
+			<button class="barra__accion barra__accion--buscar" id="boton-buscar" type="button" popovertarget="panel-busqueda"
+				aria-label="Buscar entre las tareas">
+				<svg class="icono" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+					<circle cx="11" cy="11" r="7" />
+					<path d="M20 20l-4-4" />
+				</svg>
+			</button>
+
+			<!--
+				Los tres estados son radios dentro de un fieldset: traen puestos el agrupado semántico y la
+				navegación con flechas, sin tener que añadir ARIA a mano.
+			-->
+			<fieldset class="filtros" id="filtros">
+				<legend class="visualmente-oculto">Qué tareas mostrar</legend>
+				<label class="filtros__opcion">
+					<input class="filtros__radio" type="radio" name="filtro-estado" value="todas" checked>
+					<span class="filtros__texto">Todas</span>
+				</label>
+				<label class="filtros__opcion">
+					<input class="filtros__radio" type="radio" name="filtro-estado" value="pendientes">
+					<span class="filtros__texto">Pendientes</span>
+				</label>
+				<label class="filtros__opcion">
+					<input class="filtros__radio" type="radio" name="filtro-estado" value="completadas">
+					<span class="filtros__texto">Hechas</span>
+				</label>
+			</fieldset>
+
+			<button class="barra__accion barra__accion--principal" id="boton-anadir" type="button"
+				popovertarget="menu-anadir" aria-label="Añadir tarea o grupo">
 				<svg class="icono" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
 					<path d="M12 5v14M5 12h14" />
 				</svg>
-				<span>Nueva tarea</span>
 			</button>
+		</div>
 
+		<!-- El buscador, flotante. Se abre desde la lupa y se cierra solo al pulsar fuera. -->
+		<div class="panel" id="panel-busqueda" popover>
+			<label class="visualmente-oculto" for="campo-busqueda">Buscar entre las tareas</label>
+			<input class="panel__campo" id="campo-busqueda" type="search" autocomplete="off"
+				placeholder="Buscar…">
+		</div>
+
+		<!--
+			Qué se añade. Son dos cosas, así que un menú corto en lugar de dos botones siempre a la vista.
+
+			El «aria-expanded» de cada formulario va aquí y no en el «+»: el «+» es el disparador de este
+			popover y el navegador ya le calcula su propio estado a partir de él. Escribirle uno a mano
+			diría que el menú está abierto cuando lo que se abrió fue el formulario.
+		-->
+		<div class="menu" id="menu-anadir" popover>
+			<button class="menu__opcion" id="boton-abrir-alta" type="button" data-anadir="tarea"
+				aria-expanded="false" aria-controls="formulario-nueva">
+				<svg class="icono" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+					<path d="M4 6h16M4 12h16M4 18h10" />
+				</svg>
+				<span>Tarea</span>
+			</button>
+			<button class="menu__opcion" id="boton-abrir-grupo" type="button" data-anadir="grupo"
+				aria-expanded="false" aria-controls="formulario-grupo">
+				<svg class="icono" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+					<rect x="3" y="4" width="18" height="6" rx="2" />
+					<rect x="3" y="14" width="18" height="6" rx="2" />
+				</svg>
+				<span>Grupo de tareas</span>
+			</button>
+		</div>
+
+		<!--
+			Los dos formularios de alta, juntos y bajo la barra, para que el campo salga donde está
+			mirando quien acaba de pulsar el «+».
+
+			No llevan un maxlength escrito a mano: el límite lo dicta el servidor y lo aplica vista.js con
+			lo que devuelve /tarea/configuracion.
+		-->
+		<div class="alta-grupo" id="alta-grupo">
 			<form class="formulario" id="formulario-nueva" novalidate hidden>
 				<label class="visualmente-oculto" for="campo-texto">Texto de la tarea nueva</label>
 				<div class="formulario__fila">
 					<input class="formulario__campo" id="campo-texto" name="texto" type="text"
 						autocomplete="off" placeholder="¿Qué hay que hacer?" aria-describedby="contador">
-					<button class="boton boton--principal" id="boton-anadir" type="submit">Añadir</button>
+					<button class="boton boton--principal" id="boton-anadir-tarea" type="submit">Añadir</button>
 					<button class="boton" id="boton-cancelar-alta" type="button">Cancelar</button>
 				</div>
 				<p class="formulario__contador" id="contador"></p>
+			</form>
+
+			<form class="formulario" id="formulario-grupo" novalidate hidden>
+				<label class="visualmente-oculto" for="campo-grupo">Nombre del grupo nuevo</label>
+				<div class="formulario__fila">
+					<input class="formulario__campo" id="campo-grupo" type="text" autocomplete="off"
+						placeholder="Por ejemplo: Mañana" maxlength="60">
+					<button class="boton boton--principal" id="boton-crear-grupo" type="submit">Crear</button>
+					<button class="boton" id="boton-cancelar-grupo" type="button">Cancelar</button>
+				</div>
 			</form>
 		</div>
 
@@ -107,42 +194,6 @@
 		</div>
 
 		<h2 class="visualmente-oculto">Listado de tareas</h2>
-
-		<!--
-			Filtro y búsqueda. Va oculto mientras no haya tareas: unos controles para filtrar una lista
-			vacía solo estorban.
-
-			Los tres estados son <input type="radio"> dentro de un <fieldset>: traen puestos el
-			agrupado semántico y la navegación con flechas, sin tener que añadir ARIA a mano. Aquí sí
-			son radios, al revés que el tema, porque son tres opciones excluyentes y no un interruptor.
-		-->
-		<div class="filtros" id="filtros" hidden>
-			<div class="filtros__busqueda">
-				<label class="visualmente-oculto" for="campo-busqueda">Buscar en las tareas</label>
-				<svg class="filtros__lupa icono" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-					<circle cx="11" cy="11" r="7" />
-					<path d="M20 20l-4-4" />
-				</svg>
-				<input class="filtros__campo" id="campo-busqueda" type="search" autocomplete="off"
-					placeholder="Buscar…  (pulsa /)">
-			</div>
-
-			<fieldset class="filtros__estados">
-				<legend class="visualmente-oculto">Qué tareas mostrar</legend>
-				<label class="filtros__opcion">
-					<input class="filtros__radio" type="radio" name="filtro-estado" value="todas" checked>
-					<span class="filtros__texto">Todas</span>
-				</label>
-				<label class="filtros__opcion">
-					<input class="filtros__radio" type="radio" name="filtro-estado" value="pendientes">
-					<span class="filtros__texto">Pendientes</span>
-				</label>
-				<label class="filtros__opcion">
-					<input class="filtros__radio" type="radio" name="filtro-estado" value="completadas">
-					<span class="filtros__texto">Completadas</span>
-				</label>
-			</fieldset>
-		</div>
 
 		<!--
 			Aviso de que el arrastre está desactivado. Con un filtro puesto solo se ve parte de la
@@ -160,27 +211,6 @@
 			donde meterlas y al que pueda saltar el enlace del principio.
 		-->
 		<div class="secciones" id="secciones" tabindex="-1"></div>
-
-		<!-- Alta de grupos. Se esconde igual que los filtros mientras no haya ninguna tarea. -->
-		<div class="alta-grupo" id="alta-grupo" hidden>
-			<button class="alta-grupo__abrir" id="boton-abrir-grupo" type="button" aria-expanded="false"
-				aria-controls="formulario-grupo">
-				<svg class="icono" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-					<path d="M12 5v14M5 12h14" />
-				</svg>
-				<span>Nuevo grupo</span>
-			</button>
-
-			<form class="formulario" id="formulario-grupo" novalidate hidden>
-				<label class="visualmente-oculto" for="campo-grupo">Nombre del grupo nuevo</label>
-				<div class="formulario__fila">
-					<input class="formulario__campo" id="campo-grupo" type="text" autocomplete="off"
-						placeholder="Por ejemplo: Mañana" maxlength="60">
-					<button class="boton boton--principal" id="boton-crear-grupo" type="submit">Crear</button>
-					<button class="boton" id="boton-cancelar-grupo" type="button">Cancelar</button>
-				</div>
-			</form>
-		</div>
 
 		<!-- Cuando el filtro no encuentra nada. Es distinto de no tener ninguna tarea. -->
 		<p class="sin-resultados" id="sin-resultados" hidden></p>
@@ -203,11 +233,16 @@
 		</div>
 	</main>
 
+	<!--
+		El pie solo invita a abrir el panel de atajos, no los recita.
+
+		Antes los listaba uno a uno y era un párrafo denso de letra pequeña justo debajo de las tareas,
+		repitiendo lo que el propio panel ya explica mejor y con más sitio. Lo que hay que conservar es
+		la pista de que existen: un atajo que nadie sabe que existe es un atajo que no existe.
+	-->
 	<footer class="pie">
-		<p class="pie__texto">Arrastra por el asa <span aria-hidden="true">⠿</span> para reordenar. Con el teclado:
-			<kbd>Ctrl</kbd> + <kbd>↑</kbd> / <kbd>↓</kbd>. Pulsa <kbd>n</kbd> para escribir una tarea nueva,
-		<kbd>/</kbd> para buscar.
-		<button class="pie__enlace" id="boton-atajos" type="button">Ver todos los atajos</button>
+		<p class="pie__texto">Esta lista se maneja entera con el teclado.
+		<button class="pie__enlace" id="boton-atajos" type="button">Ver los atajos</button>
 		o pulsa <kbd>?</kbd>.</p>
 	</footer>
 
@@ -306,8 +341,15 @@
 				Solo se puede llenar un grupo arrastrando o con Ctrl+←/→: crear una tarea la deja
 				suelta, nunca dentro de un grupo. El texto lo dice para no prometer lo que no pasa.
 			-->
-			<p class="seccion__vacia" hidden>Arrastra tareas hasta aquí, o muévelas con
+			<!--
+				Dos huecos y no uno: un grupo puede estar vacío porque no tiene ninguna tarea o porque
+				el filtro las esconde todas. Invitar a arrastrar en el segundo caso es engañoso, además
+				de que con un filtro puesto el arrastre está desactivado.
+			-->
+			<p class="seccion__vacia seccion__vacia--invitacion" hidden>Arrastra tareas hasta aquí, o muévelas con
 				<kbd>Ctrl</kbd> + <kbd>←</kbd> / <kbd>→</kbd>.</p>
+			<p class="seccion__vacia seccion__vacia--filtrada" hidden>Ninguna tarea de este grupo coincide con
+				lo que buscas.</p>
 		</section>
 	</template>
 
@@ -349,6 +391,27 @@
 			<textarea class="tarea__editor" rows="4" hidden></textarea>
 
 			<button class="tarea__boton-desplegar" type="button" aria-expanded="false" hidden>Ver más</button>
+
+			<!--
+				Confirmación de borrado, dentro de la propia tarjeta.
+
+				Sustituye al confirm() del navegador, que bloquea la página, no se puede estilar y
+				saca al usuario del sitio donde estaba mirando. Aquí la pregunta sale sobre la tarjeta
+				que se va a borrar, que es exactamente donde hace falta.
+
+				role="alertdialog" hace que un lector de pantalla la anuncie al aparecer, y el foco va
+				a «Cancelar»: la opción segura, nunca la destructiva.
+
+				El aria-label no se escribe aquí: lo pone vista.js con el texto de la tarea. Un
+				«Confirmar el borrado» a secas obliga a rebuscar cuál de todas está preguntando.
+			-->
+			<div class="tarea__confirmacion" role="alertdialog" hidden>
+				<p class="tarea__pregunta">¿Borrar esta tarea?</p>
+				<div class="tarea__respuestas">
+					<button class="boton boton--peligro" type="button" data-accion="confirmar-borrado">Borrar</button>
+					<button class="boton" type="button" data-accion="cancelar-borrado">Cancelar</button>
+				</div>
+			</div>
 
 			<div class="tarea__acciones">
 				<button class="tarea__accion" type="button" data-accion="editar">

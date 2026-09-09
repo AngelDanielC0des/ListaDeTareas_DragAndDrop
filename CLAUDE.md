@@ -176,13 +176,17 @@ Los elementos se buscan con `exigirElemento` / `exigirDentro`, que lanzan al car
 - **Todo color, espacio y radio sale de una variable de `:root`.** No hay valores sueltos. La escala
   va de `--espacio-1` a `--espacio-6`, y los radios son `--radio` y `--radio-pequeno`: si algo no
   encaja, se calcula desde ellas con `calc()`, no se inventa un escalón nuevo.
-- **Sin `!important`.** Hay una única excepción, la regla `[hidden]`, y está documentada en el
-  archivo explicando por qué hace falta.
+- **Sin `!important`.** Solo hay dos excepciones, las dos documentadas en el archivo explicando por
+  qué hacen falta: la regla `[hidden]`, que tiene que ganar a los `display` de las clases, y el
+  apagado de `::view-transition-*`, cuyas animaciones las pone el navegador en su hoja de agente de
+  usuario y no admiten un selector más concreto al que subirle la especificidad.
 - **Mobile first.** Cortes en 600 px y 1024 px.
 - **El tema se declara en tres bloques:** `:root` define la paleta clara completa;
   `@media (prefers-color-scheme: dark) :root:not([data-tema="claro"])` y `:root[data-tema="oscuro"]`
   solo redefinen variables. Ningún color se define únicamente dentro de un media query.
-- **`prefers-reduced-motion` se respeta siempre.**
+- **`prefers-reduced-motion` se respeta siempre.** El apagado global es `:root *` y va **al final
+  del archivo**: con el `*` a secas no gana a ninguna regla de clase, y estando en medio solo alcanza
+  a lo escrito por encima. Los estilos nuevos van siempre por encima de ese bloque.
 
 ## Accesibilidad
 
@@ -200,7 +204,7 @@ No es un extra del proyecto, es una de sus señas. Lo que ya hay y no se puede p
 
 ## Pruebas
 
-156 en total: 83 del servidor y 73 del navegador.
+216 en total: 108 del servidor y 108 del navegador.
 
 ```bash
 .\mvnw.cmd verify   # Java, más el informe de cobertura en target/site/jacoco

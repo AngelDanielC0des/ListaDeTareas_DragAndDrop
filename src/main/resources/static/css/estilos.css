@@ -458,12 +458,28 @@ body {
  */
 .lista {
 	display: grid;
-	grid-template-columns: repeat(2, minmax(0, 1fr));
+	grid-template-columns: minmax(0, 1fr);
 	align-items: start;
 	gap: var(--espacio-2);
 	margin: 0;
 	padding: 0;
 	list-style: none;
+}
+
+/*
+ * Una sola columna en el móvil de verdad. Con dos, en 390 px cada tarjeta se quedaba en unos 180 px
+ * y el texto se cortaba a las tres primeras palabras: una rejilla que no deja leer lo que contiene
+ * no está ayudando a nada.
+ *
+ * El corte va en 480 y no en el de 600 del proyecto porque ya existe la frontera de 479 para las
+ * acciones de la tarjeta, y meter un escalón nuevo en medio sería inventarse un tercer sitio donde
+ * mirar.
+ */
+@media (min-width: 480px) {
+
+	.lista {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
 }
 
 @media (min-width: 600px) {
@@ -877,7 +893,8 @@ kbd {
 /* En táctil no existe el «pasar por encima», así que las acciones no pueden esconderse ahí. */
 @media (hover: none) {
 
-	.tarea__acciones {
+	.tarea__acciones,
+	.seccion__acciones {
 		opacity: 1;
 	}
 }
@@ -890,19 +907,6 @@ kbd {
 
 	.selector-fondo__opciones {
 		grid-template-columns: repeat(2, minmax(0, 1fr));
-	}
-}
-
-/* --------------------------------------------------- Movimiento reducido */
-
-@media (prefers-reduced-motion: reduce) {
-
-	*,
-	*::before,
-	*::after {
-		animation-duration: 0.01ms;
-		animation-iteration-count: 1;
-		transition-duration: 0.01ms;
 	}
 }
 
@@ -963,6 +967,11 @@ kbd {
 	/*
 	 * Con menos movimiento no se anima nada de lo anterior. `vista.js` además ni siquiera pide la
 	 * transición, pero esto cubre el caso de que alguien cambie la preferencia con la página abierta.
+	 *
+	 * Segunda y última excepción al «sin !important» del proyecto, junto a `[hidden]`. Las animaciones
+	 * de estos pseudoelementos las declara el propio navegador en su hoja de agente de usuario para
+	 * los grupos `*`, y no hay forma de ganarles subiendo especificidad: no son elementos del
+	 * documento y no admiten un selector más concreto. O `!important`, o siguen animando.
 	 */
 	::view-transition-group(*),
 	::view-transition-old(*),
@@ -970,213 +979,6 @@ kbd {
 		animation: none !important;
 	}
 
-}
-
-/* ------------------------------------------------------------ Filtro y búsqueda */
-
-/*
- * Barra de filtros. En móvil los dos grupos se apilan y a partir de 600 px caben en una fila, con la
- * búsqueda ocupando el espacio sobrante.
- */
-.filtros {
-	display: flex;
-	flex-direction: column;
-	gap: var(--espacio-2);
-	margin-bottom: var(--espacio-4);
-}
-
-.filtros__busqueda {
-	position: relative;
-	display: flex;
-	align-items: center;
-}
-
-/*
- * La lupa se coloca dentro del campo y no responde al puntero: sin `pointer-events: none`, pulsar
- * justo encima del dibujo no enfocaría el campo que hay debajo.
- */
-.filtros__lupa {
-	position: absolute;
-	left: var(--espacio-3);
-	color: var(--color-texto-suave);
-	pointer-events: none;
-}
-
-.filtros__campo {
-	width: 100%;
-	/* A la izquierda cabe la lupa: su margen más su ancho (1.125rem) más un respiro. */
-	padding: var(--espacio-2) var(--espacio-3);
-	padding-left: calc(var(--espacio-3) + 1.125rem + var(--espacio-2));
-	border: 1px solid var(--color-borde);
-	border-radius: var(--radio-pequeno);
-	background-color: var(--color-superficie);
-	color: var(--color-texto);
-	font: inherit;
-	font-size: 0.9rem;
-	transition: border-color 120ms ease;
-}
-
-.filtros__campo:focus-visible {
-	border-color: var(--color-acento);
-}
-
-/* El aspa que Chrome pone en los type="search" desentona con el resto; se quita. */
-.filtros__campo::-webkit-search-cancel-button {
-	appearance: none;
-}
-
-.filtros__estados {
-	display: flex;
-	gap: var(--espacio-1);
-	margin: 0;
-	padding: 0;
-	border: 0;
-}
-
-.filtros__opcion {
-	flex: 1 1 0;
-}
-
-/* El radio se oculta pero sigue estando: es él quien recibe el foco y quien maneja las flechas. */
-.filtros__radio {
-	position: absolute;
-	width: 1px;
-	height: 1px;
-	opacity: 0;
-}
-
-.filtros__texto {
-	display: block;
-	padding: var(--espacio-2);
-	border: 1px solid var(--color-borde);
-	border-radius: var(--radio-pequeno);
-	color: var(--color-texto-suave);
-	font-size: 0.8rem;
-	text-align: center;
-	cursor: pointer;
-	transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
-}
-
-.filtros__texto:hover {
-	border-color: var(--color-texto-suave);
-	color: var(--color-texto);
-}
-
-.filtros__radio:checked + .filtros__texto {
-	border-color: var(--color-acento);
-	background-color: var(--color-acento);
-	color: var(--color-superficie);
-}
-
-/* El foco se pinta sobre la etiqueta porque el radio real es invisible. */
-.filtros__radio:focus-visible + .filtros__texto {
-	outline: 2px solid var(--color-acento);
-	outline-offset: 2px;
-}
-
-.aviso-arrastre,
-.sin-resultados {
-	margin: 0 0 var(--espacio-4);
-	padding: var(--espacio-3);
-	border-radius: var(--radio-pequeno);
-	background-color: var(--color-superficie-suave);
-	color: var(--color-texto-suave);
-	font-size: 0.85rem;
-	text-align: center;
-}
-
-/* Mientras el arrastre está desactivado, el asa deja de invitar a arrastrar. */
-.secciones--sin-arrastre .tarea__asa {
-	opacity: 0.35;
-	cursor: default;
-}
-
-@media (min-width: 600px) {
-
-	.filtros {
-		flex-direction: row;
-		align-items: center;
-	}
-
-	.filtros__busqueda {
-		flex: 1 1 auto;
-	}
-
-	.filtros__estados {
-		flex: none;
-	}
-
-	.filtros__texto {
-		padding: var(--espacio-2) var(--espacio-3);
-	}
-}
-
-/* --------------------------------------------------------- Ayuda de atajos */
-
-/*
- * Comparte el aspecto del selector de fondo: los dos son <dialog> nativos y conviene que se
- * reconozcan como la misma clase de ventana.
- */
-.atajos {
-	max-width: 30rem;
-	padding: var(--espacio-5);
-	border: 1px solid var(--color-borde);
-	border-radius: var(--radio);
-	background-color: var(--color-superficie);
-	color: var(--color-texto);
-}
-
-.atajos::backdrop {
-	background-color: rgba(0, 0, 0, 0.5);
-}
-
-.atajos__titulo {
-	margin: 0 0 var(--espacio-4);
-	font-size: 1.05rem;
-}
-
-/*
- * Rejilla de dos columnas para las parejas tecla/descripción. Se usa <dl> porque es exactamente lo
- * que es —una lista de términos y sus definiciones— y así el emparejamiento queda en la semántica y
- * no solo en la maquetación.
- */
-.atajos__lista {
-	display: grid;
-	grid-template-columns: auto 1fr;
-	gap: var(--espacio-2) var(--espacio-4);
-	align-items: baseline;
-	margin: 0 0 var(--espacio-5);
-}
-
-.atajos__lista dt {
-	white-space: nowrap;
-}
-
-.atajos__lista dd {
-	margin: 0;
-	color: var(--color-texto-suave);
-	font-size: 0.9rem;
-}
-
-.atajos__pie {
-	display: flex;
-	justify-content: flex-end;
-	margin: 0;
-}
-
-/* Un botón que se lee como un enlace: abre ayuda, no ejecuta una acción sobre las tareas. */
-.pie__enlace {
-	padding: 0;
-	border: 0;
-	background: none;
-	color: var(--color-acento);
-	font: inherit;
-	text-decoration: underline;
-	cursor: pointer;
-}
-
-.pie__enlace:hover {
-	color: var(--color-texto);
 }
 
 /* ---------------------------------------------------------------- Secciones */
@@ -1222,10 +1024,15 @@ kbd {
 	font-variant-numeric: tabular-nums;
 }
 
-/* Ocupa el hueco sobrante, así que la barra mide lo que dé de sí la fila. */
+/*
+ * Ocupa todo el hueco entre la cuenta y las acciones.
+ *
+ * Antes estaba topada a 12rem y quedaba flotando en mitad de la fila, con medio ancho de pantalla
+ * vacío hasta los iconos: parecía un descuido. Estirada hace de regla fina que une el nombre del
+ * grupo con sus acciones, y de paso la proporción de completadas se lee mucho mejor.
+ */
 .seccion__progreso {
 	flex: 1 1 auto;
-	max-width: 12rem;
 	height: 4px;
 	border: 0;
 	border-radius: 2px;
@@ -1244,10 +1051,24 @@ kbd {
 	transition: width 220ms ease-out;
 }
 
+/*
+ * Se revelan al pasar por encima, igual que las de la tarjeta: son acciones de mantenimiento que no
+ * hacen falta mientras se lee la lista, y con un grupo por sección llenaban el margen de iconos.
+ *
+ * El `margin-left: auto` sigue haciendo falta aunque la barra de progreso ya empuje: en la sección
+ * de sueltas no hay barra, y sin él los iconos se pegarían al nombre.
+ */
 .seccion__acciones {
 	display: flex;
 	gap: var(--espacio-1);
 	margin-left: auto;
+	opacity: 0;
+	transition: opacity 120ms ease;
+}
+
+.seccion:hover .seccion__acciones,
+.seccion:focus-within .seccion__acciones {
+	opacity: 1;
 }
 
 .seccion__accion {
@@ -1290,46 +1111,13 @@ kbd {
 
 /* --------------------------------------------------------- Alta plegable */
 
-.alta,
-.alta-grupo {
-	margin-bottom: var(--espacio-4);
-}
 
 /*
  * El botón que despliega el alta. Ocupa todo el ancho y lleva el signo dentro: es la acción
  * principal de la pantalla y tiene que verse como tal sin gritar.
  */
-.alta__abrir,
-.alta-grupo__abrir {
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	gap: var(--espacio-2);
-	width: 100%;
-	padding: var(--espacio-3);
-	border: 1px dashed var(--color-borde);
-	border-radius: var(--radio);
-	background: none;
-	color: var(--color-texto-suave);
-	font: inherit;
-	font-size: 0.9rem;
-	cursor: pointer;
-	transition: border-color 120ms ease, color 120ms ease, background-color 120ms ease;
-}
 
-.alta__abrir:hover,
-.alta-grupo__abrir:hover {
-	border-color: var(--color-acento);
-	background-color: var(--color-superficie);
-	color: var(--color-texto);
-}
 
-.alta__abrir {
-	border-style: solid;
-	border-color: var(--color-acento);
-	color: var(--color-acento);
-	font-weight: 600;
-}
 
 /*
  * El formulario aparece con una animación corta. 200 ms es el punto en que se percibe el movimiento
@@ -1479,4 +1267,441 @@ kbd {
 
 .tema[aria-pressed="true"] .tema__icono--sol {
 	display: block;
+}
+
+
+/* ------------------------------------------------------------------- Barra */
+
+/*
+ * Una sola fila con buscar, filtrar y añadir.
+ *
+ * Antes esto eran tres bloques a ancho completo y se comían un tercio de la pantalla antes de que
+ * apareciera la primera tarea. Los mandos deben caber en una línea; el espacio es de las tareas.
+ */
+.barra {
+	display: flex;
+	align-items: center;
+	gap: var(--espacio-2);
+	margin-bottom: var(--espacio-4);
+}
+
+.barra__accion {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	flex: none;
+	/* 2.25rem son 36 px: por encima del mínimo de 24 que pide la WCAG para un objetivo táctil. */
+	width: 2.25rem;
+	height: 2.25rem;
+	border: 1px solid var(--color-borde);
+	border-radius: var(--radio-pequeno);
+	background-color: var(--color-superficie);
+	color: var(--color-texto-suave);
+	cursor: pointer;
+	transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.barra__accion:hover {
+	border-color: var(--color-texto-suave);
+	color: var(--color-texto);
+}
+
+/*
+ * El «+» es la acción principal de la pantalla y se pinta como tal. Va al final de la fila porque
+ * es donde cae el pulgar en móvil y donde la vista termina de leer en escritorio.
+ */
+.barra__accion--principal {
+	margin-left: auto;
+	border-color: var(--color-acento);
+	background-color: var(--color-acento);
+	color: var(--color-acento-texto);
+}
+
+/*
+ * Repite el color y el borde a propósito: `.barra__accion:hover` los cambia a los grises del botón
+ * normal, y sin volver a declararlos aquí el «+» perdería su relleno al pasar por encima.
+ */
+.barra__accion--principal:hover {
+	border-color: var(--color-acento);
+	color: var(--color-acento-texto);
+	filter: brightness(1.1);
+}
+
+/*
+ * Avisa de que hay una búsqueda puesta. Con el buscador plegado detrás de una lupa, sin esta marca
+ * se vería una lista corta sin ninguna pista de por qué faltan tareas.
+ */
+.barra__accion--activa {
+	border-color: var(--color-acento);
+	color: var(--color-acento);
+}
+
+/* Contenedor de los dos formularios de alta. Solo separa; los formularios ya traen lo suyo. */
+.alta-grupo {
+	margin-bottom: var(--espacio-4);
+}
+
+/* ------------------------------------------------- Buscador y menú flotantes */
+
+/*
+ * Los dos son `popover` nativos, así que el navegador ya les da la capa superior, el cierre al
+ * pulsar fuera y el cierre con Escape. Aquí solo queda decir dónde se colocan y cómo se ven.
+ *
+ * El posicionamiento va anclado al botón que los abre con `anchor-name`, que evita tener que
+ * calcular coordenadas a mano y seguirlas al hacer scroll.
+ */
+.panel,
+.menu {
+	position: absolute;
+	/*
+	 * El `inset: 0` que el navegador da a todo `[popover]` hay que anularlo entero, no solo la mitad
+	 * que cada uno vuelve a declarar. El menú fija `right: anchor(right)` y se quedaba pegado a la
+	 * izquierda: con `left: 0` heredado y un `right` propio la caja queda sobre-restringida, y en
+	 * escritura de izquierda a derecha el que gana es `left`. Costó verlo porque el `right` sí se
+	 * calculaba bien; simplemente no se aplicaba.
+	 */
+	inset: auto;
+	margin: 0;
+	padding: var(--espacio-2);
+	border: 1px solid var(--color-borde);
+	border-radius: var(--radio);
+	background-color: var(--color-superficie);
+	box-shadow: var(--sombra-elevada);
+}
+
+.panel:popover-open,
+.menu:popover-open {
+	animation: aparecer-panel 140ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+@keyframes aparecer-panel {
+	from {
+		opacity: 0;
+		transform: translateY(-0.25rem);
+	}
+}
+
+/*
+ * El ancla se declara sobre la clase, no sobre el id: el proyecto mantiene la especificidad plana
+ * —una clase por selector— y meter ids aquí abriría la puerta a guerras de especificidad.
+ */
+.barra__accion--buscar {
+	anchor-name: --ancla-buscar;
+}
+
+.barra__accion--principal {
+	anchor-name: --ancla-anadir;
+}
+
+.panel {
+	position-anchor: --ancla-buscar;
+	top: anchor(bottom);
+	left: anchor(left);
+	margin-top: var(--espacio-1);
+	width: min(22rem, calc(100vw - 2rem));
+}
+
+.menu {
+	position-anchor: --ancla-anadir;
+	top: anchor(bottom);
+	right: anchor(right);
+	margin-top: var(--espacio-1);
+	min-width: 12rem;
+}
+
+.panel__campo {
+	width: 100%;
+	padding: var(--espacio-2);
+	border: 1px solid var(--color-borde);
+	border-radius: var(--radio-pequeno);
+	background-color: var(--color-fondo);
+	color: var(--color-texto);
+	font: inherit;
+}
+
+.panel__campo:focus-visible {
+	border-color: var(--color-acento);
+}
+
+/* El aspa que Chrome pone en los type="search" desentona con el resto. */
+.panel__campo::-webkit-search-cancel-button {
+	appearance: none;
+}
+
+.menu__opcion {
+	display: flex;
+	align-items: center;
+	gap: var(--espacio-2);
+	width: 100%;
+	padding: var(--espacio-2) var(--espacio-3);
+	border: 0;
+	border-radius: var(--radio-pequeno);
+	background: none;
+	color: var(--color-texto);
+	font: inherit;
+	font-size: 0.9rem;
+	text-align: left;
+	cursor: pointer;
+	transition: background-color 120ms ease;
+}
+
+.menu__opcion:hover {
+	background-color: var(--color-superficie-suave);
+}
+
+/* ------------------------------------------------------------- Filtros */
+
+.filtros {
+	display: flex;
+	gap: var(--espacio-1);
+	min-width: 0;
+	margin: 0;
+	padding: 0;
+	border: 0;
+}
+
+/* El radio se oculta pero sigue estando: es él quien recibe el foco y maneja las flechas. */
+.filtros__radio {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	opacity: 0;
+}
+
+.filtros__texto {
+	display: block;
+	padding: var(--espacio-1) var(--espacio-3);
+	border: 1px solid var(--color-borde);
+	border-radius: var(--radio-pequeno);
+	color: var(--color-texto-suave);
+	font-size: 0.8rem;
+	white-space: nowrap;
+	cursor: pointer;
+	transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.filtros__texto:hover {
+	border-color: var(--color-texto-suave);
+	color: var(--color-texto);
+}
+
+.filtros__radio:checked + .filtros__texto {
+	border-color: var(--color-acento);
+	background-color: var(--color-acento);
+	color: var(--color-acento-texto);
+}
+
+/* El foco se pinta sobre la etiqueta porque el radio real es invisible. */
+.filtros__radio:focus-visible + .filtros__texto {
+	outline: 2px solid var(--color-acento);
+	outline-offset: 2px;
+}
+
+/* --------------------------------------------- Confirmación de borrado */
+
+/*
+ * Mientras se pregunta, la tarjeta se marca en rojo y su contenido se atenúa: deja claro sobre cuál
+ * se está preguntando sin sacar al usuario de donde estaba mirando, que es lo que hace un confirm().
+ */
+.tarea--confirmando {
+	outline: 2px solid var(--color-peligro);
+	outline-offset: -1px;
+	border-color: var(--color-peligro);
+}
+
+/*
+ * El texto NO se atenúa: es lo único que dice qué se va a borrar, y es justo cuando más falta hace
+ * leerlo. Lo que se apaga es lo que ya no se puede usar —la casilla y el «Ver más»—, y queda inerte
+ * para que un clic despistado no abra la edición por debajo de la pregunta.
+ */
+.tarea--confirmando .tarea__texto {
+	pointer-events: none;
+}
+
+.tarea--confirmando .tarea__cabecera,
+.tarea--confirmando .tarea__boton-desplegar {
+	opacity: 0.4;
+	pointer-events: none;
+}
+
+/*
+ * Las acciones desaparecen del todo en vez de atenuarse.
+ *
+ * Con `opacity` no bastaba: `.tarea:focus-within .tarea__acciones` empata en especificidad y el foco
+ * está dentro de la tarjeta —en «Cancelar»— mientras se pregunta, así que ganaba por orden y los
+ * iconos se quedaban a plena vista. `visibility` no compite con ninguna regla de opacidad, y además
+ * los saca del recorrido del tabulador, que es lo que se quiere: durante la pregunta solo hay dos
+ * respuestas posibles.
+ */
+.tarea--confirmando .tarea__acciones {
+	visibility: hidden;
+}
+
+.tarea__confirmacion {
+	display: flex;
+	flex-direction: column;
+	gap: var(--espacio-2);
+	padding-top: var(--espacio-2);
+	border-top: 1px solid var(--color-peligro);
+}
+
+.tarea__pregunta {
+	margin: 0;
+	color: var(--color-peligro);
+	font-size: 0.85rem;
+	font-weight: 600;
+}
+
+.tarea__respuestas {
+	display: flex;
+	gap: var(--espacio-2);
+}
+
+.tarea__respuestas .boton {
+	flex: 1 1 0;
+	padding: var(--espacio-1) var(--espacio-2);
+	font-size: 0.8rem;
+}
+
+.boton--peligro {
+	border-color: var(--color-peligro);
+	/*
+	 * `--color-acento-texto` y no `--color-superficie`: es el token del proyecto para el texto que va
+	 * encima de un relleno saturado, y el único que se voltea con el tema —blanco en claro, casi
+	 * negro en oscuro— igual que se voltea el rojo de debajo.
+	 */
+	background-color: var(--color-peligro);
+	color: var(--color-acento-texto);
+}
+
+.boton--peligro:hover {
+	filter: brightness(1.1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+	.panel:popover-open,
+	.menu:popover-open {
+		animation: none;
+	}
+}
+
+/* ------------------------------------------------------------------ Avisos */
+
+.aviso-arrastre,
+.sin-resultados {
+	margin: 0 0 var(--espacio-4);
+	padding: var(--espacio-3);
+	border-radius: var(--radio-pequeno);
+	background-color: var(--color-superficie-suave);
+	color: var(--color-texto-suave);
+	font-size: 0.85rem;
+	text-align: center;
+}
+
+/* Mientras el arrastre está desactivado, el asa deja de invitar a arrastrar. */
+.secciones--sin-arrastre .tarea__asa {
+	opacity: 0.35;
+	cursor: default;
+}
+
+/* Cada opción del filtro ocupa lo que pida su texto; la fila ya reparte el espacio. */
+.filtros__opcion {
+	display: flex;
+}
+
+/* --------------------------------------------------------- Ayuda de atajos */
+
+/*
+ * Comparte el aspecto del selector de fondo: los dos son <dialog> nativos y conviene que se
+ * reconozcan como la misma clase de ventana.
+ */
+.atajos {
+	max-width: 30rem;
+	padding: var(--espacio-5);
+	border: 1px solid var(--color-borde);
+	border-radius: var(--radio);
+	background-color: var(--color-superficie);
+	color: var(--color-texto);
+}
+
+.atajos::backdrop {
+	background-color: rgba(0, 0, 0, 0.5);
+}
+
+.atajos__titulo {
+	margin: 0 0 var(--espacio-4);
+	font-size: 1.05rem;
+}
+
+/*
+ * Rejilla de dos columnas para las parejas tecla/descripción. Se usa <dl> porque es exactamente lo
+ * que es —términos y sus definiciones— y así el emparejamiento queda en la semántica.
+ */
+.atajos__lista {
+	display: grid;
+	grid-template-columns: auto 1fr;
+	gap: var(--espacio-2) var(--espacio-4);
+	align-items: baseline;
+	margin: 0 0 var(--espacio-5);
+}
+
+.atajos__lista dt {
+	white-space: nowrap;
+}
+
+.atajos__lista dd {
+	margin: 0;
+	color: var(--color-texto-suave);
+	font-size: 0.9rem;
+}
+
+.atajos__pie {
+	display: flex;
+	justify-content: flex-end;
+	margin: 0;
+}
+
+/* Un botón que se lee como un enlace: abre ayuda, no ejecuta una acción sobre las tareas. */
+.pie__enlace {
+	padding: 0;
+	border: 0;
+	background: none;
+	color: var(--color-acento);
+	font: inherit;
+	text-decoration: underline;
+	cursor: pointer;
+}
+
+.pie__enlace:hover {
+	color: var(--color-texto);
+}
+
+/* --------------------------------------------------- Movimiento reducido */
+
+/*
+ * `:root *` y no `*` a secas, que es como estaba y no servía de nada.
+ *
+ * El selector universal tiene especificidad cero, así que CUALQUIER regla de clase le gana venga
+ * antes o después: `.tarea` seguía animando sus 150 ms con el movimiento reducido pedido, y lo mismo
+ * el resto de la hoja. Medido en el navegador con `prefers-reduced-motion` activado.
+ *
+ * La forma habitual de arreglarlo es `!important`, que aquí no se usa. `:root *` puntúa (0,1,0),
+ * igual que una clase, y gana el desempate por orden **si va después**. De ahí que este bloque sea
+ * lo último del archivo y no un apartado en medio: donde estaba antes solo alcanzaba a las reglas
+ * escritas por encima, y las de la barra, los filtros y el menú seguían animando.
+ *
+ * Por eso, al añadir estilos nuevos, van SIEMPRE por encima de este bloque. Y si alguna vez hay que
+ * apagar una animación declarada con dos clases, que puntúa más alto, esa regla necesitará su propio
+ * apartado dentro de un `prefers-reduced-motion`.
+ */
+@media (prefers-reduced-motion: reduce) {
+
+	:root *,
+	:root *::before,
+	:root *::after {
+		animation-duration: 0.01ms;
+		animation-iteration-count: 1;
+		transition-duration: 0.01ms;
+	}
 }
